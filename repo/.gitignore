@@ -38,5 +38,5 @@ frontend/.vercel/
 # Docker and local runtime artifacts
 *.pid
 *.seed
-tmp/
+*.tmp/
 .cache/

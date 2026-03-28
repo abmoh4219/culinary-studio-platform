@@ -1081,7 +1081,7 @@ export async function issueInvoice(input: IssueInvoiceInput) {
       data: {
         invoiceNumber,
         userId: validated.customerUserId,
-        status: InvoiceStatus.ISSUED,
+        status: InvoiceStatus.DRAFT,
         currency: validated.currency,
         priceBookId: effectiveBook.id,
         priceBookCodeSnapshot: effectiveBook.code,
@@ -1200,6 +1200,13 @@ export async function issueInvoice(input: IssueInvoiceInput) {
         }
       });
     }
+
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        status: InvoiceStatus.ISSUED
+      }
+    });
 
     return {
       invoice: {

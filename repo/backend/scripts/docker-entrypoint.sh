@@ -1,53 +1,47 @@
 #!/bin/sh
-set -eu
+set -e
 
-echo "[backend] Waiting for database readiness"
-node -e "
+echo "[backend] Waiting for PostgreSQL readiness"
+node <<'NODE'
 const { PrismaClient } = require('./prisma/generated');
-const prisma = new PrismaClient();
-const attempts = Number(process.env.DB_WAIT_MAX_ATTEMPTS || 30);
-const delayMs = Number(process.env.DB_WAIT_DELAY_MS || 2000);
 
-async function sleep(ms) {
+const prisma = new PrismaClient();
+
+function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function main() {
-  for (let i = 1; i <= attempts; i += 1) {
+async function waitForDatabase() {
+  let attempt = 1;
+
+  while (true) {
     try {
-      await prisma.$queryRawUnsafe('SELECT 1');
-      console.log('[backend] Database is ready');
+      await prisma.$connect();
       await prisma.$disconnect();
+      console.log('[backend] PostgreSQL is reachable');
       return;
     } catch (error) {
-      console.log('[backend] Database not ready (attempt ' + i + '/' + attempts + ')');
-      if (i === attempts) {
-        await prisma.$disconnect();
-        throw error;
-      }
-      await sleep(delayMs);
+      const message = error && error.message ? error.message : String(error);
+      console.log('[backend] PostgreSQL not ready (attempt ' + attempt + '): ' + message);
+      attempt += 1;
+      await delay(1000);
     }
   }
 }
 
-main().catch((error) => {
-  console.error('[backend] Failed waiting for database', error?.message || error);
+waitForDatabase().catch(async (error) => {
+  console.error('[backend] Failed waiting for PostgreSQL', error && error.message ? error.message : error);
+  try {
+    await prisma.$disconnect();
+  } catch (_disconnectError) {
+    // no-op
+  }
   process.exit(1);
 });
-"
+NODE
 
-echo "[backend] Generating Prisma client"
-npm run prisma:generate
+echo "[backend] Applying Prisma migrations"
+npx prisma migrate deploy
 
-echo "[backend] Applying migrations"
-npm run prisma:migrate:deploy
-
-if [ "${SEED:-0}" = "1" ] || [ "${SEED:-0}" = "true" ]; then
-  echo "[backend] Running QA seed"
-  npm run seed:qa
-else
-  echo "[backend] Skipping QA seed (SEED not enabled)"
-fi
-
-echo "[backend] Starting API"
-node dist/server.js
+echo "[backend] Starting backend"
+npm run start

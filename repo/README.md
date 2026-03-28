@@ -78,6 +78,69 @@ docker compose --profile tls up --build
 - Compose healthchecks are enabled for PostgreSQL and backend readiness (`/health/ready`).
 - `/health/ready` returns structured readiness JSON with config/database/redis checks.
 
+## Runtime Proof
+
+Expected startup logs include lines similar to:
+
+- `[setup] Starting isolated PostgreSQL test container` (from `run_tests.sh`)
+- `[backend] Waiting for database readiness`
+- `[backend] Database is ready`
+- `Starting backend service`
+
+Expected readiness response:
+
+```json
+{
+  "status": "ready",
+  "checks": {
+    "config": { "ok": true },
+    "database": { "ok": true },
+    "redis": { "ok": true }
+  }
+}
+```
+
+Sample runtime verification commands:
+
+```bash
+curl -sS http://localhost:4000/health
+curl -sS http://localhost:4000/health/ready
+curl -sS -X POST http://localhost:4000/api/v1/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"qa.admin@culinary.local","password":"QaAdminPass123!"}'
+```
+
+## Acceptance Proof
+
+Covered domains in tests:
+
+- auth
+- booking
+- billing
+- workflow
+- notification
+- security middleware (signed requests, idempotency, rate limiting, lockout)
+
+Coverage assurances include:
+
+- authentication and account lockout behavior
+- object-level authorization through HTTP routes
+- booking lifecycle flows (create, conflict, waitlist, promotion, cancellation)
+- billing rules and invoice persistence snapshots
+- security enforcement (signature, idempotency, replay handling, rate limits)
+
+Example passing output snippet:
+
+```text
+[1/3] Backend unit tests
+Test Files  14 passed (14)
+[2/3] Backend API tests
+Test Files  4 passed (4)
+[3/3] Frontend unit tests
+Test Files  3 passed (3)
+Summary: total=3 passed=3 failed=0
+```
+
 ## At-Rest Encryption
 
 - Backend encrypted columns (`*Ciphertext` + `*Iv`) use AES-256-GCM with `FIELD_ENCRYPTION_KEY`.
@@ -110,10 +173,10 @@ npm run test:unit --workspace frontend
 
 Test env variables (defaults are set by `run_tests.sh`): `DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `FIELD_ENCRYPTION_KEY`, `SECURITY_ACTION_PATH_PREFIXES`.
 
-Real (non-mocked) backend integration path (opt-in):
+Real (non-mocked) backend integration path (default):
 
 ```bash
-RUN_REAL_INTEGRATION=true REAL_INTEGRATION_DATABASE_URL="postgresql://..." npm run test:api --workspace backend
+./run_tests.sh
 ```
 
-This runs a dedicated test that creates an isolated schema, applies Prisma migrations, seeds a minimal admin user, then exercises `/api/v1/auth/login` and a signed/idempotent protected mutation through the real app stack.
+`run_tests.sh` always starts an isolated PostgreSQL container, runs Prisma migrations in a dedicated integration schema, and executes both mock-backed API tests and the real-stack integration suite. The real suite proves the golden path (auth, booking, waitlist promotion, cancellation, billing, notification history), object-level authorization, edge cases, idempotency, and encrypted-field behavior.

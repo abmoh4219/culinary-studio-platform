@@ -324,7 +324,7 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           additionalProperties: false,
           required: ['bookingId'],
           properties: {
-            bookingId: { type: 'string', minLength: 1, maxLength: 64 }
+            bookingId: { type: 'string', format: 'uuid' }
           }
         },
         body: {
@@ -366,7 +366,17 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { bookingId: string }; Querystring: CancellationPreviewQuery }>(
     '/:bookingId/cancellation-preview',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['bookingId'],
+          properties: {
+            bookingId: { type: 'string', format: 'uuid' }
+          }
+        }
+      }
     },
     async (request, reply) => {
       try {
@@ -401,7 +411,7 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           additionalProperties: false,
           required: ['bookingId'],
           properties: {
-            bookingId: { type: 'string', minLength: 1, maxLength: 64 }
+            bookingId: { type: 'string', format: 'uuid' }
           }
         },
         body: {
@@ -494,7 +504,7 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           additionalProperties: false,
           required: ['bookingId'],
           properties: {
-            bookingId: { type: 'string', minLength: 1, maxLength: 64 }
+            bookingId: { type: 'string', format: 'uuid' }
           }
         },
         body: {

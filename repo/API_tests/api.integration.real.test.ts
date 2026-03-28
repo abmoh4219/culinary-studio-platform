@@ -4,9 +4,7 @@ import path from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-const runRealIntegration = process.env.RUN_REAL_INTEGRATION === 'true';
-
-describe.runIf(runRealIntegration)('real backend integration (postgres + prisma migrations)', () => {
+describe('real backend integration (postgres + prisma migrations)', () => {
   const repoRoot = path.resolve(__dirname, '..');
   const backendRoot = path.join(repoRoot, 'backend');
 
@@ -28,8 +26,120 @@ describe.runIf(runRealIntegration)('real backend integration (postgres + prisma 
   let prisma: any;
   let adminPrisma: any;
   let authCookieName = 'access_token';
-  let seededUserId = '';
-  let seededUsername = '';
+  let bodyHashFn: (payload: unknown) => string;
+
+  const seeded = {
+    admin: { id: '', username: '', password: 'RealAdminPass123!' },
+    frontDesk: { id: '', username: '', password: 'RealDeskPass123!' },
+    instructor: { id: '', username: '', password: 'RealInstructorPass123!' },
+    memberA: { id: '', username: '', password: 'RealMemberAPass123!' },
+    memberB: { id: '', username: '', password: 'RealMemberBPass123!' }
+  };
+
+  const billingSeed = {
+    membershipPlanId: ''
+  };
+
+  function utcIso(hoursFromNow: number): string {
+    return new Date(Date.now() + hoursFromNow * 60 * 60 * 1000).toISOString();
+  }
+
+  async function login(username: string, password: string): Promise<{ cookie: string; userId: string }> {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        username,
+        password
+      }
+    });
+
+    expect(response.statusCode, `Login should succeed for ${username}`).toBe(200);
+    const setCookie = response.headers['set-cookie'];
+    const cookieHeader = Array.isArray(setCookie)
+      ? setCookie[0].split(';')[0]
+      : (setCookie || '').split(';')[0];
+    expect(cookieHeader.startsWith(`${authCookieName}=`), 'Auth cookie should be returned').toBe(true);
+
+    return {
+      cookie: cookieHeader,
+      userId: response.json().user.id as string
+    };
+  }
+
+  function signedHeaders(input: {
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    path: string;
+    payload: unknown;
+    nonce: string;
+    idempotencyKey: string;
+  }) {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const canonical = [
+      input.method,
+      input.path,
+      timestamp,
+      input.nonce,
+      '',
+      bodyHashFn(input.payload)
+    ].join('\n');
+
+    const signature = createHmac('sha256', process.env.SIGNED_REQUEST_SECRET || '')
+      .update(canonical)
+      .digest('hex');
+
+    return {
+      'content-type': 'application/json',
+      'x-key-id': process.env.SIGNED_REQUEST_KEY_ID || 'default',
+      'x-timestamp': timestamp,
+      'x-nonce': input.nonce,
+      'x-signature': signature,
+      'idempotency-key': input.idempotencyKey
+    };
+  }
+
+  async function seedUser(input: {
+    username: string;
+    password: string;
+    roles: string[];
+    UserStatus: any;
+    hashPassword: (raw: string) => Promise<string>;
+  }): Promise<string> {
+    const passwordHash = await input.hashPassword(input.password);
+    const user = await prisma.user.create({
+      data: {
+        username: input.username,
+        displayName: input.username,
+        status: input.UserStatus.ACTIVE,
+        passwordHash,
+        consentGranted: true,
+        consentGrantedAt: new Date(),
+        failedLoginAttempts: 0,
+        lockedUntil: null
+      },
+      select: {
+        id: true
+      }
+    });
+
+    for (const roleCode of input.roles) {
+      const role = await prisma.role.findUnique({
+        where: { code: roleCode },
+        select: { id: true }
+      });
+
+      if (role) {
+        await prisma.userRole.create({
+          data: {
+            userId: user.id,
+            roleId: role.id
+          }
+        });
+      }
+    }
+
+    return user.id;
+  }
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
@@ -41,6 +151,8 @@ describe.runIf(runRealIntegration)('real backend integration (postgres + prisma 
     process.env.SECURITY_ACTION_PATH_PREFIXES = '/bookings,/billing,/invoices,/payments';
     process.env.FIELD_ENCRYPTION_KEY = process.env.FIELD_ENCRYPTION_KEY || 'real_it_field_encryption_key_32!!';
     process.env.TRUST_PROXY = 'false';
+    process.env.BOOKING_OPEN_HOURS_NON_MEMBER = '0';
+    process.env.BOOKING_MEMBER_EARLY_ACCESS_HOURS = '0';
 
     execSync('npx prisma migrate deploy --schema prisma/schema.prisma', {
       cwd: backendRoot,
@@ -53,14 +165,17 @@ describe.runIf(runRealIntegration)('real backend integration (postgres + prisma 
 
     vi.resetModules();
 
-    const [{ PrismaClient, UserStatus }, { hashPassword }, appModule, authConstants] = await Promise.all([
+    const [{ PrismaClient, UserStatus, MembershipPlanStatus, PriceBookStatus, InvoiceLineType }, { hashPassword }, appModule, authConstants, securityUtils] = await Promise.all([
       import('../backend/prisma/generated'),
       import('../backend/src/modules/auth/password.service'),
       import('../backend/src/app'),
-      import('../backend/src/modules/auth/auth.constants')
+      import('../backend/src/modules/auth/auth.constants'),
+      import('../backend/src/modules/security/security.utils')
     ]);
 
+    bodyHashFn = securityUtils.bodyHash;
     authCookieName = authConstants.AUTH_COOKIE_NAME;
+
     prisma = new PrismaClient({
       datasources: {
         db: {
@@ -77,45 +192,69 @@ describe.runIf(runRealIntegration)('real backend integration (postgres + prisma 
       }
     });
 
-    const adminRole = await prisma.role.upsert({
-      where: { code: 'ADMIN' },
-      update: {},
-      create: {
-        code: 'ADMIN',
-        name: 'Administrator'
-      }
-    });
-
-    const passwordHash = await hashPassword('RealIntegrationPass123!');
-
-    const seeded = await prisma.user.create({
-      data: {
-        username: `real-it-admin-${randomUUID().slice(0, 8)}`,
-        displayName: 'Real Integration Admin',
-        status: UserStatus.ACTIVE,
-        passwordHash,
-        consentGranted: true,
-        consentGrantedAt: new Date(),
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-        roles: {
-          create: {
-            roleId: adminRole.id
-          }
+    for (const roleCode of ['USER', 'MEMBER', 'FRONT_DESK', 'INSTRUCTOR', 'ADMIN']) {
+      await prisma.role.upsert({
+        where: { code: roleCode },
+        update: {},
+        create: {
+          code: roleCode,
+          name: roleCode
         }
+      });
+    }
+
+    seeded.admin.username = `real-admin-${randomUUID().slice(0, 8)}@example.local`;
+    seeded.frontDesk.username = `real-desk-${randomUUID().slice(0, 8)}@example.local`;
+    seeded.instructor.username = `real-inst-${randomUUID().slice(0, 8)}@example.local`;
+    seeded.memberA.username = `real-member-a-${randomUUID().slice(0, 8)}@example.local`;
+    seeded.memberB.username = `real-member-b-${randomUUID().slice(0, 8)}@example.local`;
+
+    seeded.admin.id = await seedUser({ username: seeded.admin.username, password: seeded.admin.password, roles: ['ADMIN'], UserStatus, hashPassword });
+    seeded.frontDesk.id = await seedUser({ username: seeded.frontDesk.username, password: seeded.frontDesk.password, roles: ['FRONT_DESK'], UserStatus, hashPassword });
+    seeded.instructor.id = await seedUser({ username: seeded.instructor.username, password: seeded.instructor.password, roles: ['INSTRUCTOR'], UserStatus, hashPassword });
+    seeded.memberA.id = await seedUser({ username: seeded.memberA.username, password: seeded.memberA.password, roles: ['MEMBER'], UserStatus, hashPassword });
+    seeded.memberB.id = await seedUser({ username: seeded.memberB.username, password: seeded.memberB.password, roles: ['MEMBER'], UserStatus, hashPassword });
+
+    const membershipPlan = await prisma.membershipPlan.create({
+      data: {
+        code: `PLAN-${randomUUID().slice(0, 8)}`,
+        name: 'Integration Membership',
+        durationDays: 30,
+        includedCredits: 4,
+        status: MembershipPlanStatus.ACTIVE
       },
-      select: {
-        id: true,
-        username: true
-      }
+      select: { id: true }
+    });
+    billingSeed.membershipPlanId = membershipPlan.id;
+
+    const book = await prisma.priceBook.create({
+      data: {
+        code: `PB-${randomUUID().slice(0, 8)}`,
+        version: 1,
+        name: 'Integration Price Book',
+        currency: 'USD',
+        status: PriceBookStatus.PUBLISHED,
+        validFrom: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        publishedAt: new Date()
+      },
+      select: { id: true }
     });
 
-    seededUserId = seeded.id;
+    await prisma.priceBookItem.create({
+      data: {
+        priceBookId: book.id,
+        sku: `SKU-${randomUUID().slice(0, 8)}`,
+        label: 'Integration Membership Item',
+        lineType: InvoiceLineType.MEMBERSHIP_PLAN,
+        membershipPlanId: membershipPlan.id,
+        unitAmount: 120,
+        taxAmount: 0,
+        isTaxInclusive: false
+      }
+    });
 
     app = appModule.buildApp();
     await app.ready();
-
-    seededUsername = seeded.username;
   }, 120000);
 
   afterAll(async () => {
@@ -133,142 +272,531 @@ describe.runIf(runRealIntegration)('real backend integration (postgres + prisma 
     }
   });
 
-  async function loginAndGetCookie(): Promise<string> {
-    const login = await app.inject({
+  it('registers user with consent and stores consent flags', async () => {
+    const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/auth/login',
+      url: '/api/v1/auth/register',
       payload: {
-        username: seededUsername,
-        password: 'RealIntegrationPass123!'
+        username: `consent-${randomUUID().slice(0, 8)}@example.local`,
+        password: 'ConsentPass123!',
+        consentGranted: true
       }
     });
 
-    expect(login.statusCode).toBe(200);
-    expect(login.json().user.id).toBe(seededUserId);
+    expect(response.statusCode).toBe(201);
+    expect(response.json().user.consentGranted, 'Consent must be stored as true').toBe(true);
+    expect(response.json().user.consentGrantedAt, 'Consent timestamp must be returned').toBeTruthy();
+  });
 
-    const setCookie = login.headers['set-cookie'];
-    const cookieHeader = Array.isArray(setCookie)
-      ? setCookie[0].split(';')[0]
-      : (setCookie || '').split(';')[0];
+  it('supports golden path across auth, booking, waitlist, cancellation, and notifications', async () => {
+    const memberA = await login(seeded.memberA.username, seeded.memberA.password);
+    const memberB = await login(seeded.memberB.username, seeded.memberB.password);
 
-    expect(cookieHeader.startsWith(`${authCookieName}=`)).toBe(true);
+    const startAt = utcIso(3);
+    const endAt = utcIso(4);
+    const sessionKey = `golden-${randomUUID().slice(0, 6)}`;
 
-    return cookieHeader;
-  }
-
-  async function signedHeaders(pathName: string, payload: unknown, nonce: string, idempotencyKey: string) {
-    const timestamp = String(Math.floor(Date.now() / 1000));
-
-    const { bodyHash } = await import('../backend/src/modules/security/security.utils');
-    const canonical = ['POST', pathName, timestamp, nonce, seededUserId, bodyHash(payload)].join('\n');
-    const signature = createHmac('sha256', process.env.SIGNED_REQUEST_SECRET || '')
-      .update(canonical)
-      .digest('hex');
-
-    return {
-      'content-type': 'application/json',
-      'x-key-id': process.env.SIGNED_REQUEST_KEY_ID || 'default',
-      'x-timestamp': timestamp,
-      'x-nonce': nonce,
-      'x-signature': signature,
-      'idempotency-key': idempotencyKey
-    };
-  }
-
-  it('logs in and performs a real signed protected billing mutation', async () => {
-    const cookieHeader = await loginAndGetCookie();
-
-    const pathName = '/api/v1/billing/wallet/top-up';
-    const payload = {
-      userId: seededUserId,
-      amount: 25,
-      currency: 'USD',
-      reason: 'real integration top-up'
-    };
-
-    const headers = await signedHeaders(pathName, payload, `real-it-${Date.now()}`, `real-it-idem-${Date.now()}`);
-
-    const mutation = await app.inject({
-      method: 'POST',
-      url: pathName,
-      headers: {
-        cookie: cookieHeader,
-        ...headers
-      },
-      payload
+    const browse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/bookings/availability?sessionKey=${sessionKey}&startAt=${encodeURIComponent(startAt)}&endAt=${encodeURIComponent(endAt)}&capacity=1`,
+      headers: { cookie: memberA.cookie }
     });
-
-    expect(mutation.statusCode).toBe(200);
-    expect(mutation.json().wallet.userId).toBe(seededUserId);
-  }, 120000);
-
-  it('executes full booking lifecycle with real DB state and cancellation fee', async () => {
-    const cookieHeader = await loginAndGetCookie();
-
-    const startAt = new Date(Date.now() + 3 * 60 * 60 * 1000);
-    const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
+    expect(browse.statusCode, 'Offerings/availability lookup should succeed').toBe(200);
 
     const createPath = '/api/v1/bookings';
     const createPayload = {
-      sessionKey: 'real.integration.class',
+      sessionKey,
       seatKey: 'station-1',
-      startAt: startAt.toISOString(),
-      endAt: endAt.toISOString(),
+      startAt,
+      endAt,
       capacity: 1,
       partySize: 1
     };
-
     const create = await app.inject({
       method: 'POST',
       url: createPath,
       headers: {
-        cookie: cookieHeader,
-        ...(await signedHeaders(createPath, createPayload, `real-it-book-${Date.now()}`, `real-it-book-idem-${Date.now()}`))
+        cookie: memberA.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: createPath,
+          payload: createPayload,
+          nonce: `golden-create-${Date.now()}`,
+          idempotencyKey: `golden-create-idem-${Date.now()}`
+        })
       },
       payload: createPayload
     });
+    expect(create.statusCode, 'Booking creation should succeed').toBe(201);
+    const bookingId = create.json().booking.id as string;
 
+    const waitlistPath = '/api/v1/bookings/waitlist';
+    const waitlistPayload = {
+      sessionKey,
+      startAt,
+      endAt,
+      capacity: 1,
+      contact: seeded.memberB.username
+    };
+    const waitlist = await app.inject({
+      method: 'POST',
+      url: waitlistPath,
+      headers: {
+        cookie: memberB.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: waitlistPath,
+          payload: waitlistPayload,
+          nonce: `golden-wait-${Date.now()}`,
+          idempotencyKey: `golden-wait-idem-${Date.now()}`
+        })
+      },
+      payload: waitlistPayload
+    });
+    expect(waitlist.statusCode, 'Waitlist join should succeed').toBe(201);
+
+    const cancelPath = `/api/v1/bookings/${bookingId}/cancel-confirm`;
+    const cancelPayload = { capacity: 1, baseAmount: 100 };
+    const cancel = await app.inject({
+      method: 'POST',
+      url: cancelPath,
+      headers: {
+        cookie: memberA.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: cancelPath,
+          payload: cancelPayload,
+          nonce: `golden-cancel-${Date.now()}`,
+          idempotencyKey: `golden-cancel-idem-${Date.now()}`
+        })
+      },
+      payload: cancelPayload
+    });
+    expect(cancel.statusCode, 'Cancellation confirmation should succeed').toBe(200);
+    expect(cancel.json().feePreview.feePercent, 'Fee should be 50% for 3h window').toBe(50);
+    expect(cancel.json().promotion.promoted, 'Cancellation should promote waitlist user').toBe(true);
+
+    let history: any;
+    let promotedNotificationFound = false;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      history = await app.inject({
+        method: 'GET',
+        url: '/api/v1/notifications/history',
+        headers: { cookie: memberB.cookie }
+      });
+      expect(history.statusCode, 'Notification history should be accessible').toBe(200);
+
+      const notifications = history.json().notifications as Array<any>;
+      promotedNotificationFound = notifications.some(
+        (item) =>
+          item.scenario === 'WAITLIST_PROMOTION' &&
+          item.payloadJson &&
+          item.payloadJson.bookingId === cancel.json().promotion.booking.id
+      );
+
+      if (promotedNotificationFound) {
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    expect(promotedNotificationFound, 'Waitlist promotion notification should exist').toBe(true);
+  }, 120000);
+
+  it('rejects overlapping booking conflict with 409', async () => {
+    const memberA = await login(seeded.memberA.username, seeded.memberA.password);
+    const memberB = await login(seeded.memberB.username, seeded.memberB.password);
+
+    const startAt = utcIso(6);
+    const endAt = utcIso(7);
+    const sessionKey = `conflict-${randomUUID().slice(0, 6)}`;
+
+    const pathName = '/api/v1/bookings';
+    const firstPayload = {
+      sessionKey,
+      seatKey: 'station-1',
+      startAt,
+      endAt,
+      capacity: 10,
+      partySize: 1
+    };
+    const first = await app.inject({
+      method: 'POST',
+      url: pathName,
+      headers: {
+        cookie: memberA.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: pathName,
+          payload: firstPayload,
+          nonce: `conflict-a-${Date.now()}`,
+          idempotencyKey: `conflict-a-idem-${Date.now()}`
+        })
+      },
+      payload: firstPayload
+    });
+    expect(first.statusCode).toBe(201);
+
+    const secondPayload = {
+      ...firstPayload
+    };
+    const second = await app.inject({
+      method: 'POST',
+      url: pathName,
+      headers: {
+        cookie: memberB.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: pathName,
+          payload: secondPayload,
+          nonce: `conflict-b-${Date.now()}`,
+          idempotencyKey: `conflict-b-idem-${Date.now()}`
+        })
+      },
+      payload: secondPayload
+    });
+    expect(second.statusCode, 'Overlapping seat booking must be rejected').toBe(409);
+  }, 120000);
+
+  it('enforces object-level booking authorization via API layer', async () => {
+    const memberA = await login(seeded.memberA.username, seeded.memberA.password);
+    const memberB = await login(seeded.memberB.username, seeded.memberB.password);
+
+    const startAt = utcIso(8);
+    const endAt = utcIso(9);
+    const sessionKey = `authz-${randomUUID().slice(0, 6)}`;
+
+    const createPath = '/api/v1/bookings';
+    const createPayload = {
+      sessionKey,
+      seatKey: 'station-1',
+      startAt,
+      endAt,
+      capacity: 10,
+      partySize: 1
+    };
+    const create = await app.inject({
+      method: 'POST',
+      url: createPath,
+      headers: {
+        cookie: memberA.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: createPath,
+          payload: createPayload,
+          nonce: `authz-create-${Date.now()}`,
+          idempotencyKey: `authz-create-idem-${Date.now()}`
+        })
+      },
+      payload: createPayload
+    });
     expect(create.statusCode).toBe(201);
     const bookingId = create.json().booking.id as string;
-    expect(bookingId).toBeTruthy();
 
     const preview = await app.inject({
       method: 'GET',
-      url: `/api/v1/bookings/${bookingId}/cancellation-preview?baseAmount=100`,
+      url: `/api/v1/bookings/${bookingId}/cancellation-preview`,
+      headers: { cookie: memberB.cookie }
+    });
+    expect(preview.statusCode, 'Other member must not preview another booking').toBe(403);
+
+    const cancel = await app.inject({
+      method: 'POST',
+      url: `/api/v1/bookings/${bookingId}/cancel-confirm`,
       headers: {
-        cookie: cookieHeader
+        cookie: memberB.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: `/api/v1/bookings/${bookingId}/cancel-confirm`,
+          payload: { capacity: 10 },
+          nonce: `authz-cancel-${Date.now()}`,
+          idempotencyKey: `authz-cancel-idem-${Date.now()}`
+        })
+      },
+      payload: { capacity: 10 }
+    });
+    expect(cancel.statusCode, 'Other member must not cancel another booking').toBe(403);
+
+    const reschedule = await app.inject({
+      method: 'POST',
+      url: `/api/v1/bookings/${bookingId}/reschedule`,
+      headers: {
+        cookie: memberB.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: `/api/v1/bookings/${bookingId}/reschedule`,
+          payload: {
+            newSessionKey: `${sessionKey}-new`,
+            newSeatKey: 'station-2',
+            newStartAt: utcIso(10),
+            newEndAt: utcIso(11),
+            capacity: 10
+          },
+          nonce: `authz-res-${Date.now()}`,
+          idempotencyKey: `authz-res-idem-${Date.now()}`
+        })
+      },
+      payload: {
+        newSessionKey: `${sessionKey}-new`,
+        newSeatKey: 'station-2',
+        newStartAt: utcIso(10),
+        newEndAt: utcIso(11),
+        capacity: 10
       }
     });
+    expect(reschedule.statusCode, 'Other member must not reschedule another booking').toBe(403);
+  }, 120000);
 
-    expect(preview.statusCode).toBe(200);
-    expect(preview.json().preview.feePercent).toBe(50);
+  it('allows front desk and admin to manage booking', async () => {
+    const memberA = await login(seeded.memberA.username, seeded.memberA.password);
+    const desk = await login(seeded.frontDesk.username, seeded.frontDesk.password);
+    const admin = await login(seeded.admin.username, seeded.admin.password);
 
-    const confirmPath = `/api/v1/bookings/${bookingId}/cancel-confirm`;
-    const confirmPayload = {
-      capacity: 1,
-      baseAmount: 100
+    const startAt = utcIso(12);
+    const endAt = utcIso(13);
+    const sessionKey = `staff-${randomUUID().slice(0, 6)}`;
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/api/v1/bookings',
+      headers: {
+        cookie: memberA.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: '/api/v1/bookings',
+          payload: {
+            sessionKey,
+            seatKey: 'station-1',
+            startAt,
+            endAt,
+            capacity: 10,
+            partySize: 1
+          },
+          nonce: `staff-create-${Date.now()}`,
+          idempotencyKey: `staff-create-idem-${Date.now()}`
+        })
+      },
+      payload: {
+        sessionKey,
+        seatKey: 'station-1',
+        startAt,
+        endAt,
+        capacity: 10,
+        partySize: 1
+      }
+    });
+    expect(create.statusCode).toBe(201);
+    const bookingId = create.json().booking.id as string;
+
+    const deskPreview = await app.inject({
+      method: 'GET',
+      url: `/api/v1/bookings/${bookingId}/cancellation-preview`,
+      headers: { cookie: desk.cookie }
+    });
+    expect(deskPreview.statusCode, 'Front desk should be allowed to manage booking').toBe(200);
+
+    const adminPreview = await app.inject({
+      method: 'GET',
+      url: `/api/v1/bookings/${bookingId}/cancellation-preview`,
+      headers: { cookie: admin.cookie }
+    });
+    expect(adminPreview.statusCode, 'Admin should be allowed to manage booking').toBe(200);
+  }, 120000);
+
+  it('creates invoice and persists immutable billing snapshots', async () => {
+    const admin = await login(seeded.admin.username, seeded.admin.password);
+
+    const pathName = '/api/v1/billing/invoices/issue';
+    const payload = {
+      customerUserId: seeded.memberA.id,
+      currency: 'USD',
+      discountPercent: 10,
+      discountReason: 'Promo test',
+      lines: [
+        {
+          type: 'MEMBERSHIP_PLAN',
+          membershipPlanId: billingSeed.membershipPlanId,
+          quantity: 1
+        }
+      ]
     };
 
-    const cancelConfirm = await app.inject({
+    const response = await app.inject({
       method: 'POST',
-      url: confirmPath,
+      url: pathName,
       headers: {
-        cookie: cookieHeader,
-        ...(await signedHeaders(confirmPath, confirmPayload, `real-it-cancel-${Date.now()}`, `real-it-cancel-idem-${Date.now()}`))
+        cookie: admin.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: pathName,
+          payload,
+          nonce: `invoice-${Date.now()}`,
+          idempotencyKey: `invoice-idem-${Date.now()}`
+        })
       },
-      payload: confirmPayload
+      payload
     });
 
-    expect(cancelConfirm.statusCode).toBe(200);
-    expect(cancelConfirm.json().feePreview.feePercent).toBe(50);
+    expect(response.statusCode, 'Invoice issuance should succeed').toBe(201);
+    const invoiceId = response.json().invoice.id as string;
 
-    const booking = await prisma.booking.findUnique({
-      where: { id: bookingId },
+    const invoiceRow = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
       select: {
-        status: true
+        id: true,
+        priceBookCodeSnapshot: true,
+        priceBookVersionSnapshot: true,
+        totalAmountSnapshot: true,
+        discountAmountSnapshot: true
+      }
+    });
+    expect(invoiceRow?.priceBookCodeSnapshot, 'Price book code snapshot should persist').toBeTruthy();
+    expect(invoiceRow?.priceBookVersionSnapshot, 'Price book version snapshot should persist').toBeTruthy();
+    expect(Number(invoiceRow?.totalAmountSnapshot ?? 0), 'Invoice total should be persisted').toBeGreaterThan(0);
+    expect(Number(invoiceRow?.discountAmountSnapshot ?? 0), 'Discount snapshot should be persisted').toBeGreaterThan(0);
+  }, 120000);
+
+  it('prevents duplicate idempotent processing on signed mutation', async () => {
+    const admin = await login(seeded.admin.username, seeded.admin.password);
+
+    const pathName = '/api/v1/billing/wallet/top-up';
+    const payload = {
+      userId: seeded.memberA.id,
+      amount: 25,
+      currency: 'USD',
+      reason: 'idempotency-integration-test'
+    };
+
+    const idempotencyKey = `idem-real-${Date.now()}`;
+    const first = await app.inject({
+      method: 'POST',
+      url: pathName,
+      headers: {
+        cookie: admin.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: pathName,
+          payload,
+          nonce: `idem-nonce-1-${Date.now()}`,
+          idempotencyKey
+        })
+      },
+      payload
+    });
+
+    const second = await app.inject({
+      method: 'POST',
+      url: pathName,
+      headers: {
+        cookie: admin.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: pathName,
+          payload,
+          nonce: `idem-nonce-2-${Date.now()}`,
+          idempotencyKey
+        })
+      },
+      payload
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode, 'Second request should return cached idempotent response').toBe(200);
+    expect(second.json()).toEqual(first.json());
+  }, 120000);
+
+  it('covers 404 and invalid access edge cases', async () => {
+    const memberA = await login(seeded.memberA.username, seeded.memberA.password);
+    const memberB = await login(seeded.memberB.username, seeded.memberB.password);
+
+    const invalidBookingId = 'not-a-valid-booking-id';
+    const invalidBookingIdResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/bookings/${invalidBookingId}/cancellation-preview`,
+      headers: { cookie: memberA.cookie }
+    });
+    expect(invalidBookingIdResponse.statusCode, 'Malformed booking id should be rejected').toBe(400);
+
+    const preview404 = await app.inject({
+      method: 'GET',
+      url: `/api/v1/bookings/${randomUUID()}/cancellation-preview`,
+      headers: { cookie: memberA.cookie }
+    });
+    expect(preview404.statusCode, 'Missing booking should return 404').toBe(404);
+
+    const workflow404 = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workflows/runs/${randomUUID()}`,
+      headers: { cookie: memberA.cookie }
+    });
+    expect(workflow404.statusCode, 'Missing workflow run should return 404').toBe(404);
+
+    const invalidWorkflowId = 'x'.repeat(130);
+    const workflowInvalid = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workflows/runs/${invalidWorkflowId}`,
+      headers: { cookie: memberA.cookie }
+    });
+    expect(workflowInvalid.statusCode, 'Invalid workflow run id should not resolve').toBe(404);
+
+    const notificationsForbidden = await app.inject({
+      method: 'GET',
+      url: `/api/v1/notifications/history?userId=${seeded.memberA.id}`,
+      headers: { cookie: memberB.cookie }
+    });
+    expect(notificationsForbidden.statusCode, 'Member should not read another user notification history').toBe(403);
+  }, 120000);
+
+  it('keeps encrypted fields out of API response and encrypted at rest', async () => {
+    const memberA = await login(seeded.memberA.username, seeded.memberA.password);
+
+    const plainBody = 'private-body-plaintext';
+    const plainDestination = 'member@example.local';
+
+    const createEvent = await app.inject({
+      method: 'POST',
+      url: '/api/v1/notifications/events',
+      headers: {
+        cookie: memberA.cookie,
+        'content-type': 'application/json'
+      },
+      payload: {
+        scenario: 'BOOKING_SUCCESS',
+        body: plainBody,
+        destination: plainDestination,
+        autoDeliver: false
+      }
+    });
+    expect(createEvent.statusCode).toBe(201);
+
+    const row = await prisma.notification.findFirst({
+      where: { userId: memberA.userId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        bodyCiphertext: true,
+        bodyIv: true,
+        destinationCiphertext: true,
+        destinationIv: true
       }
     });
 
-    expect(booking?.status, 'Booking status should be persisted as canceled').toBe('CANCELED');
+    expect(row?.bodyCiphertext, 'Notification body ciphertext should be stored').toBeTruthy();
+    expect(row?.destinationCiphertext, 'Notification destination ciphertext should be stored').toBeTruthy();
+    expect(row?.bodyCiphertext === plainBody, 'Plain body must not be stored as raw ciphertext').toBe(false);
+    expect(row?.destinationCiphertext === plainDestination, 'Plain destination must not be stored raw').toBe(false);
+    expect(row?.bodyIv, 'Notification body IV should be persisted').toBeTruthy();
+    expect(row?.destinationIv, 'Notification destination IV should be persisted').toBeTruthy();
+
+    const history = await app.inject({
+      method: 'GET',
+      url: '/api/v1/notifications/history',
+      headers: { cookie: memberA.cookie }
+    });
+
+    expect(history.statusCode).toBe(200);
+    const notification = history.json().notifications[0];
+    expect(notification.bodyCiphertext, 'Encrypted internal fields must not be exposed by API').toBeUndefined();
+    expect(notification.destinationCiphertext, 'Encrypted internal fields must not be exposed by API').toBeUndefined();
   }, 120000);
 });
