@@ -176,17 +176,26 @@ enum WebhookDeliveryStatus {
   DEAD_LETTER
 }
 
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
 model User {
   id              String      @id @default(uuid()) @db.Uuid
   username        String      @unique @db.VarChar(50)
   displayName     String      @db.VarChar(120)
-  emailHash       String      @unique @db.VarChar(128)
+  emailHash       String?     @unique @db.VarChar(128)
   emailCiphertext String?     @db.Text
   emailIv         String?     @db.VarChar(64)
   phoneHash       String?     @unique @db.VarChar(128)
   phoneCiphertext String?     @db.Text
   phoneIv         String?     @db.VarChar(64)
   passwordHash    String?     @db.VarChar(255)
+  consentGranted  Boolean     @default(false)
+  consentGrantedAt DateTime?
+  failedLoginAttempts Int      @default(0)
+  lockedUntil      DateTime?
   status          UserStatus  @default(ACTIVE)
   lastLoginAt     DateTime?
   createdAt       DateTime    @default(now())
@@ -205,9 +214,12 @@ model User {
   notifications   Notification[]
   auditLogs       AuditLog[]          @relation("AuditActor")
   webhookConfigs  WebhookConfig[]     @relation("WebhookCreator")
+  signedRequestReplays SignedRequestReplay[]
+  idempotencyKeys IdempotencyKey[]
 
   @@index([status])
   @@index([createdAt])
+  @@index([lockedUntil])
 }
 
 model Role {
@@ -705,4 +717,44 @@ model WebhookLog {
   @@index([webhookConfigId, requestedAt])
   @@index([deliveryStatus, requestedAt])
   @@index([eventKey, deliveryStatus, requestedAt])
+}
+
+model SignedRequestReplay {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String?  @db.Uuid
+  scopeKey             String   @db.VarChar(140)
+  nonce                String   @db.VarChar(120)
+  requestSignatureHash String   @db.VarChar(128)
+  canonicalHash        String   @db.VarChar(128)
+  requestTimestamp     DateTime
+  createdAt            DateTime @default(now())
+  expiresAt            DateTime
+  user                 User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([scopeKey, nonce])
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+}
+
+model IdempotencyKey {
+  id             String            @id @default(uuid()) @db.Uuid
+  userId         String?           @db.Uuid
+  scopeKey       String            @db.VarChar(140)
+  idempotencyKey String            @db.VarChar(120)
+  method         String            @db.VarChar(10)
+  path           String            @db.VarChar(255)
+  requestHash    String            @db.VarChar(128)
+  status         IdempotencyStatus @default(IN_PROGRESS)
+  responseStatus Int?
+  responseBody   Json?
+  lockedAt       DateTime          @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  expiresAt      DateTime
+  user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([scopeKey, idempotencyKey, method, path])
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
 }

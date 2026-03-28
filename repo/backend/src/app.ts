@@ -2,6 +2,12 @@ import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import Fastify from 'fastify';
 
+import { AUTH_COOKIE_NAME } from './modules/auth/auth.constants';
+import { authRoutes } from './modules/auth/auth.routes';
+import { createIdempotencyMiddleware } from './modules/security/idempotency.middleware';
+import { createUserRateLimitMiddleware } from './modules/security/rate-limit.middleware';
+import { createSignedRequestMiddleware } from './modules/security/signed-request.middleware';
+
 export function buildApp() {
   const app = Fastify({ logger: true });
 
@@ -12,10 +18,21 @@ export function buildApp() {
   app.register(jwt, {
     secret: process.env.JWT_ACCESS_SECRET || 'development_access_secret',
     cookie: {
-      cookieName: 'access_token',
+      cookieName: AUTH_COOKIE_NAME,
       signed: false
     }
   });
+
+  app.addHook('preHandler', createUserRateLimitMiddleware(app));
+  app.addHook('preHandler', createSignedRequestMiddleware());
+
+  const idempotencyMiddleware = createIdempotencyMiddleware();
+  app.addHook('preHandler', idempotencyMiddleware.preHandler);
+  app.addHook('onSend', idempotencyMiddleware.onSend);
+
+  app.register(authRoutes, { prefix: '/auth' });
+
+  app.get('/health', async () => ({ status: 'ok' }));
 
   return app;
 }
