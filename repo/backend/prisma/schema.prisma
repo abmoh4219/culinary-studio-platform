@@ -181,6 +181,13 @@ enum IdempotencyStatus {
   COMPLETED
 }
 
+enum MembershipEnrollmentStatus {
+  ACTIVE
+  PAUSED
+  CANCELED
+  EXPIRED
+}
+
 model User {
   id              String      @id @default(uuid()) @db.Uuid
   username        String      @unique @db.VarChar(50)
@@ -216,6 +223,8 @@ model User {
   webhookConfigs  WebhookConfig[]     @relation("WebhookCreator")
   signedRequestReplays SignedRequestReplay[]
   idempotencyKeys IdempotencyKey[]
+  membershipEnrollments MembershipEnrollment[]
+  creditPackGrants CreditPackGrant[]
 
   @@index([status])
   @@index([createdAt])
@@ -254,6 +263,7 @@ model MembershipPlan {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   priceBookItems      PriceBookItem[]
+  enrollments         MembershipEnrollment[]
 
   @@index([status])
 }
@@ -269,6 +279,7 @@ model CreditPack {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   priceBookItems      PriceBookItem[]
+  grants              CreditPackGrant[]
 
   @@index([status])
 }
@@ -328,6 +339,8 @@ model PriceBook {
   previousVersions    PriceBook[]      @relation("PriceBookSupersession")
   invoices            Invoice[]
   bookings            Booking[]
+  membershipEnrollments MembershipEnrollment[]
+  creditPackGrants    CreditPackGrant[]
 
   @@unique([code, version])
   @@index([status, validFrom, validTo])
@@ -350,6 +363,8 @@ model PriceBookItem {
   creditPack          CreditPack?     @relation(fields: [creditPackId], references: [id], onDelete: SetNull)
   invoiceLineItems    InvoiceLineItem[]
   bookings            Booking[]
+  membershipEnrollments MembershipEnrollment[]
+  creditPackGrants    CreditPackGrant[]
 
   @@unique([priceBookId, sku])
   @@index([membershipPlanId])
@@ -757,4 +772,50 @@ model IdempotencyKey {
   @@unique([scopeKey, idempotencyKey, method, path])
   @@index([userId, createdAt])
   @@index([status, expiresAt])
+}
+
+model MembershipEnrollment {
+  id             String                     @id @default(uuid()) @db.Uuid
+  userId         String                     @db.Uuid
+  membershipPlanId String                   @db.Uuid
+  priceBookId    String?                    @db.Uuid
+  priceBookItemId String?                   @db.Uuid
+  status         MembershipEnrollmentStatus @default(ACTIVE)
+  startsAt       DateTime
+  endsAt         DateTime
+  autoRenew      Boolean                    @default(false)
+  nextBillingAt  DateTime?
+  lastChargedAt  DateTime?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+  user           User                       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  membershipPlan MembershipPlan             @relation(fields: [membershipPlanId], references: [id], onDelete: Restrict)
+  priceBook      PriceBook?                 @relation(fields: [priceBookId], references: [id], onDelete: SetNull)
+  priceBookItem  PriceBookItem?             @relation(fields: [priceBookItemId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, endsAt])
+  @@index([membershipPlanId, status])
+  @@index([nextBillingAt])
+}
+
+model CreditPackGrant {
+  id             String      @id @default(uuid()) @db.Uuid
+  userId         String      @db.Uuid
+  creditPackId   String      @db.Uuid
+  priceBookId    String?     @db.Uuid
+  priceBookItemId String?    @db.Uuid
+  creditsTotal   Int
+  creditsRemaining Int
+  grantedAt      DateTime    @default(now())
+  expiresAt      DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  user           User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  creditPack     CreditPack  @relation(fields: [creditPackId], references: [id], onDelete: Restrict)
+  priceBook      PriceBook?  @relation(fields: [priceBookId], references: [id], onDelete: SetNull)
+  priceBookItem  PriceBookItem? @relation(fields: [priceBookItemId], references: [id], onDelete: SetNull)
+
+  @@index([userId, expiresAt])
+  @@index([creditPackId, grantedAt])
+  @@index([creditsRemaining])
 }

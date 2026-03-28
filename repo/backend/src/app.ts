@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 
 import { AUTH_COOKIE_NAME } from './modules/auth/auth.constants';
 import { authRoutes } from './modules/auth/auth.routes';
+import { billingRoutes } from './modules/billing/billing.routes';
 import { bookingRoutes } from './modules/bookings/booking.routes';
 import { createIdempotencyMiddleware } from './modules/security/idempotency.middleware';
 import { createUserRateLimitMiddleware } from './modules/security/rate-limit.middleware';
@@ -32,6 +33,7 @@ export function buildApp() {
   app.addHook('onSend', idempotencyMiddleware.onSend);
 
   app.register(authRoutes, { prefix: '/auth' });
+  app.register(billingRoutes, { prefix: '/billing' });
   app.register(bookingRoutes, { prefix: '/bookings' });
 
   app.get('/health', async () => ({ status: 'ok' }));

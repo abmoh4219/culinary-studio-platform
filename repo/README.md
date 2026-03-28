@@ -81,6 +81,7 @@ This scaffold is HTTP-first for local development, but it is ready to be fronted
 - Auth foundation migration: `backend/prisma/migrations/20260328170000_auth_foundation/migration.sql`
 - Security hardening migration: `backend/prisma/migrations/20260328183000_security_rbac_lockout_rate_limit/migration.sql`
 - Signed request/idempotency migration: `backend/prisma/migrations/20260328193000_signed_requests_idempotency/migration.sql`
+- Billing membership/credits migration: `backend/prisma/migrations/20260328203000_billing_membership_credits_wallet_pricing/migration.sql`
 - Run local dev migration from `backend/`:
 
 ```bash
@@ -158,3 +159,59 @@ npm run prisma:migrate:dev
   - `> 24h` before start: `0%` fee
   - `<= 24h` and `>= 2h` before start: `50%` fee
   - `< 2h` before start: `100%` fee
+
+## Billing API (Part 1)
+
+- Price books and effective pricing:
+  - `GET /billing/price-books/effective?asOf=<iso>&currency=<ISO3>`
+  - `GET /billing/membership-plans/:membershipPlanId/price?asOf=<iso>&currency=<ISO3>`
+  - `GET /billing/credit-packs/:creditPackId/price?asOf=<iso>&currency=<ISO3>`
+- Membership billing (schedule/charge snapshots):
+  - `POST /billing/memberships/enroll`
+  - `POST /billing/memberships/:enrollmentId/renew`
+  - Enrollment stores `startsAt`, `endsAt`, optional `nextBillingAt`, `lastChargedAt`, and pricebook snapshot references.
+- Credit packs with expiry:
+  - `POST /billing/credit-packs/purchase`
+  - Creates `CreditPackGrant` with `creditsTotal`, `creditsRemaining`, and calculated `expiresAt`.
+- Credits and wallet:
+  - `GET /billing/credits/balance`
+  - `POST /billing/credits/consume`
+  - `GET /billing/wallet?currency=<ISO3>`
+  - `POST /billing/wallet/top-up` (ADMIN)
+  - `POST /billing/wallet/debit` (ADMIN)
+
+## Billing API (Part 2)
+
+- Invoice issuance endpoints:
+  - `POST /billing/invoices/issue`
+  - `GET /billing/invoices/:invoiceId`
+- Invoice immutability approach:
+  - Issuance creates invoices in `ISSUED` status immediately.
+  - Existing DB triggers block mutations once invoice is non-draft.
+  - API exposes no invoice update endpoint.
+  - Corrections are handled by issuing new corrective documents (existing invoice is never edited).
+- Tax policy:
+  - Default sales tax rate is `8.875%` (`SALES_TAX_RATE=0.08875`), configurable via env.
+- Discount policy:
+  - Invoice discount cap is `30%` for normal users.
+  - Above `30%` requires `ADMIN` role and mandatory `discountReason`.
+  - Discount reason is stored through `DiscountOverride` linked to invoice.
+- Pricing source at invoice time:
+  - Line prices resolve from effective published price book (`validFrom/validTo`) at invoice `asOf` datetime.
+  - Invoice line snapshots store resolved price book code/version and resolved line amounts/tax values.
+
+## Billing API (Part 3)
+
+- Manual tender endpoints:
+  - `POST /billing/payments/manual` (ADMIN)
+  - Supported methods: `CASH`, `CHECK`, `MANUAL_CARD`
+  - No processor integration; payment recording is fully manual.
+- Outstanding and due-date endpoints:
+  - `GET /billing/invoices/:invoiceId/outstanding`
+  - `GET /billing/receivables?userId=<optional-admin-scope>`
+- Payment application behavior:
+  - Payment is inserted as a new `Payment` row linked to invoice.
+  - Outstanding is computed from `invoice.totalAmountSnapshot - SUM(completed payments)`.
+  - Issued invoice amounts/lines are not edited, preserving invoice immutability.
+- Due dates:
+  - Invoice due date can be set on issuance (`dueAt`); if omitted, defaults from `INVOICE_DUE_DAYS` (default 14).
