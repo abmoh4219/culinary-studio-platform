@@ -10,8 +10,11 @@
 
   const navigation = [
     { name: 'Overview', href: '/', badge: 'home' },
-    { name: 'Admin Stub', href: '/admin', badge: 'admin' },
-    { name: 'Member Stub', href: '/member', badge: 'member' }
+    { name: 'Member Workspace', href: '/member', badge: 'member' },
+    { name: 'Front Desk', href: '/front-desk', badge: 'desk' },
+    { name: 'Instructor Workspace', href: '/instructor', badge: 'coach' },
+    { name: 'Admin Workspace', href: '/admin', badge: 'admin' },
+    { name: 'Dashboard', href: '/dashboard', badge: 'ops' }
   ];
 
   let mobileNavOpen = false;
