@@ -68,16 +68,17 @@
   }
 </script>
 
-<div class="space-y-s6 pb-s12">
-  <div class="flex items-center justify-between gap-s3">
-    <a href="/" class="inline-flex items-center gap-s2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+<div class="space-y-s8 pb-s12">
+  <div class="flex flex-wrap items-center justify-between gap-s3">
+    <a href="/" class="inline-flex items-center gap-s2 rounded-full border border-border/70 bg-card/60 px-s3 py-s2 text-sm text-muted-foreground surface-transition hover:bg-muted/60 hover:text-foreground">
       ← Back to shell
     </a>
-    <p class="text-xs uppercase tracking-[0.18em] text-muted-foreground">Front Desk Workspace</p>
+    <p class="section-eyebrow">Front Desk Workspace</p>
   </div>
 
   <Card className="p-s6 md:p-s8">
-    <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Booking + Waitlist + Payments</h1>
+    <p class="section-eyebrow">Desk Operations</p>
+    <h1 class="mt-s2 text-2xl font-semibold tracking-tight md:text-3xl">Booking, waitlist, and payment desk</h1>
     <p class="mt-s2 max-w-3xl text-sm text-muted-foreground md:text-base">
       Real endpoint integration for booking operations, queue handling, manual tenders, outstanding balances, and cancellation policy enforcement.
     </p>
@@ -88,7 +89,7 @@
       <h2 class="text-base font-semibold">Booking management</h2>
       <p class="mt-s1 text-sm text-muted-foreground">Search availability, create booking, and adjust existing booking as allowed.</p>
 
-      <form method="GET" class="mt-s4 grid gap-s3 md:grid-cols-2">
+      <form method="GET" class="mt-s4 grid gap-s3 rounded-lg border border-border/70 bg-background/30 p-s4 md:grid-cols-2">
         <div class="space-y-s2">
           <Label for="search-session-key">Session key</Label>
           <Input id="search-session-key" name="sessionKey" bind:value={sessionKey} />
@@ -105,13 +106,13 @@
           <Label for="search-end">End (ISO)</Label>
           <Input id="search-end" name="endAt" bind:value={endAt} placeholder="2026-04-03T18:30:00.000Z" />
         </div>
-        <div class="md:col-span-2">
+        <div class="md:col-span-2 pt-s1">
           <Button type="submit" className="h-12">Search window</Button>
         </div>
       </form>
 
       {#if data.availability}
-        <div class="mt-s4 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s4 glass-panel p-s3 text-sm">
           <p>Open: <span class="font-medium">{data.availability.isOpen ? 'Yes' : 'No'}</span></p>
           <p class="mt-1">Active bookings: <span class="font-medium">{data.availability.activeBookings}</span></p>
           <p class="mt-1">Remaining: <span class="font-medium">{data.availability.remainingCapacity}</span></p>
@@ -119,7 +120,7 @@
         </div>
       {/if}
 
-      <form method="POST" action="?/createBooking" class="mt-s4 space-y-s3 rounded-lg border bg-background/70 p-s4">
+      <form method="POST" action="?/createBooking" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/35 p-s4">
         <p class="text-sm font-semibold">Create booking</p>
         <input type="hidden" name="sessionKey" value={sessionKey} />
         <input type="hidden" name="startAt" value={startAt} />
@@ -141,7 +142,7 @@
         <Button type="submit">Create booking</Button>
       </form>
 
-      <form method="POST" action="?/adjustBooking" class="mt-s4 space-y-s3 rounded-lg border bg-background/70 p-s4">
+      <form method="POST" action="?/adjustBooking" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/35 p-s4">
         <p class="text-sm font-semibold">Adjust booking (reschedule)</p>
         <div class="space-y-s2">
           <Label for="adjust-booking-id">Booking ID</Label>
@@ -191,7 +192,7 @@
             </thead>
             <tbody>
               {#each data.waitlist.entries as entry}
-                <tr class="border-t">
+                <tr class="border-t border-border/70">
                   <td class="py-2 font-medium">#{entry.queuePosition}</td>
                   <td class="py-2">{entry.status}</td>
                   <td class="py-2 text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</td>
@@ -204,7 +205,7 @@
         <p class="mt-s3 text-sm text-muted-foreground">No queue entries for current session window.</p>
       {/if}
 
-      <form method="POST" action="?/promoteWaitlist" class="mt-s4 space-y-s3 rounded-lg border bg-background/70 p-s4">
+      <form method="POST" action="?/promoteWaitlist" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/35 p-s4">
         <input type="hidden" name="sessionKey" value={sessionKey} />
         <input type="hidden" name="startAt" value={startAt} />
         <input type="hidden" name="endAt" value={endAt} />
@@ -217,7 +218,7 @@
       </form>
 
       {#if promotion}
-        <div class="mt-s4 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s4 glass-panel p-s3 text-sm">
           {#if promotion.promoted}
             Promoted waitlist entry {promotion.waitlistEntryId}.
           {:else}
@@ -233,7 +234,7 @@
       <h2 class="text-base font-semibold">Payments and balances</h2>
       <p class="mt-s1 text-sm text-muted-foreground">Manual tender capture and outstanding balance lookup.</p>
 
-      <form method="GET" class="mt-s4 space-y-s3">
+      <form method="GET" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/30 p-s4">
         <div class="space-y-s2">
           <Label for="lookup-user-id">Account user ID</Label>
           <Input id="lookup-user-id" name="userId" bind:value={userId} />
@@ -250,7 +251,7 @@
       </form>
 
       {#if data.outstanding}
-        <div class="mt-s4 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s4 glass-panel p-s3 text-sm">
           <p>Invoice: <span class="font-medium">{data.outstanding.invoiceNumber}</span></p>
           <p class="mt-1">Outstanding: <span class="font-medium">{data.outstanding.outstanding.outstandingAmount.toFixed(2)} {data.outstanding.currency}</span></p>
           <p class="mt-1 text-muted-foreground">Paid: {data.outstanding.outstanding.paidAmount.toFixed(2)}</p>
@@ -258,13 +259,13 @@
       {/if}
 
       {#if data.receivables}
-        <div class="mt-s4 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s4 glass-panel p-s3 text-sm">
           <p>Total outstanding: <span class="font-medium">{data.receivables.totalOutstanding.toFixed(2)}</span></p>
           <p class="mt-1 text-muted-foreground">Open invoices: {data.receivables.invoices.length}</p>
         </div>
       {/if}
 
-      <form method="POST" action="?/recordPayment" class="mt-s4 space-y-s3 rounded-lg border bg-background/70 p-s4">
+      <form method="POST" action="?/recordPayment" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/35 p-s4">
         <div class="space-y-s2">
           <Label for="payment-invoice-id">Invoice ID</Label>
           <Input id="payment-invoice-id" name="invoiceId" bind:value={invoiceId} />
@@ -272,7 +273,7 @@
         <div class="grid gap-s3 md:grid-cols-2">
           <div class="space-y-s2">
             <Label for="payment-method">Method</Label>
-            <select id="payment-method" name="method" bind:value={paymentMethod} class="h-10 w-full rounded-md border bg-background px-3 text-sm">
+            <select id="payment-method" name="method" bind:value={paymentMethod} class="field-select">
               <option value="CASH">CASH</option>
               <option value="CHECK">CHECK</option>
               <option value="MANUAL_CARD">MANUAL_CARD</option>
@@ -305,7 +306,7 @@
       <h2 class="text-base font-semibold">Cancellation handling</h2>
       <p class="mt-s1 text-sm text-muted-foreground">Policy/fee preview first, then confirm cancellation.</p>
 
-      <form method="POST" action="?/previewCancellation" class="mt-s4 space-y-s3">
+      <form method="POST" action="?/previewCancellation" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/30 p-s4">
         <div class="space-y-s2">
           <Label for="cancel-booking-id">Booking ID</Label>
           <Input id="cancel-booking-id" name="bookingId" bind:value={bookingId} />
@@ -318,14 +319,14 @@
       </form>
 
       {#if cancelPreview}
-        <div class="mt-s4 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s4 glass-panel p-s3 text-sm">
           <p>Policy: <span class="font-medium">{cancelPreview.preview.policyBand}</span></p>
           <p class="mt-1">Fee percent: <span class="font-medium">{cancelPreview.preview.feePercent}%</span></p>
           <p class="mt-1">Fee amount: <span class="font-medium">${cancelPreview.preview.feeAmount.toFixed(2)}</span></p>
         </div>
       {/if}
 
-      <form method="POST" action="?/confirmCancellation" class="mt-s4 space-y-s3">
+      <form method="POST" action="?/confirmCancellation" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/30 p-s4">
         <input type="hidden" name="bookingId" value={bookingId} />
         <input type="hidden" name="baseAmount" value={cancelBaseAmount} />
 

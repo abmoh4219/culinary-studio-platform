@@ -99,16 +99,17 @@
   });
 </script>
 
-<div class="space-y-s6 pb-s12">
-  <div class="flex items-center justify-between gap-s3">
-    <a href="/" class="inline-flex items-center gap-s2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+<div class="space-y-s8 pb-s12">
+  <div class="flex flex-wrap items-center justify-between gap-s3">
+    <a href="/" class="inline-flex items-center gap-s2 rounded-full border border-border/70 bg-card/60 px-s3 py-s2 text-sm text-muted-foreground surface-transition hover:bg-muted/60 hover:text-foreground">
       ← Back to shell
     </a>
-    <p class="text-xs uppercase tracking-[0.18em] text-muted-foreground">Administrator Workspace</p>
+    <p class="section-eyebrow">Administrator Workspace</p>
   </div>
 
   <Card className="p-s6 md:p-s8">
-    <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Pricing, Controls, and Operational Governance</h1>
+    <p class="section-eyebrow">Admin Control Room</p>
+    <h1 class="mt-s2 text-2xl font-semibold tracking-tight md:text-3xl">Pricing, controls, and operational governance</h1>
     <p class="mt-s2 max-w-4xl text-sm text-muted-foreground md:text-base">
       Real API integrations for effective price-book resolution, discount overrides via invoicing, operational audit streams,
       webhook delivery governance, runtime security checks, and exposed privacy controls.
@@ -120,7 +121,7 @@
       <h2 class="text-base font-semibold">Pricing rules and effective versions</h2>
       <p class="mt-s1 text-sm text-muted-foreground">Resolve published effective price book at any datetime/currency and inspect live plan/pack prices.</p>
 
-      <form method="GET" class="mt-s4 grid gap-s3 md:grid-cols-2">
+      <form method="GET" class="mt-s4 grid gap-s3 rounded-lg border border-border/70 bg-background/30 p-s4 md:grid-cols-2">
         <div class="space-y-s2">
           <Label for="price-as-of">As of (ISO)</Label>
           <Input id="price-as-of" name="asOf" bind:value={asOf} placeholder="2026-04-05T00:00:00.000Z" />
@@ -137,13 +138,13 @@
           <Label for="credit-pack-id">Credit pack ID</Label>
           <Input id="credit-pack-id" name="creditPackId" bind:value={creditPackId} />
         </div>
-        <div class="md:col-span-2">
+        <div class="md:col-span-2 pt-s1">
           <Button type="submit" className="h-12">Resolve effective pricing</Button>
         </div>
       </form>
 
       {#if data.effectivePriceBook}
-        <div class="mt-s4 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s4 glass-panel p-s3 text-sm">
           <p>
             Effective book: <span class="font-medium">{data.effectivePriceBook.code}</span>
             v{data.effectivePriceBook.version}
@@ -157,7 +158,7 @@
       {/if}
 
       {#if data.membershipPrice}
-        <div class="mt-s3 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s3 glass-panel p-s3 text-sm">
           <p class="font-medium">Membership price: {data.membershipPrice.membershipPlan.name}</p>
           <p class="mt-1">Unit {data.membershipPrice.priceItem.unitAmount.toFixed(2)} {data.membershipPrice.priceBook.currency}</p>
           <p class="text-muted-foreground">Tax {data.membershipPrice.priceItem.taxAmount.toFixed(2)}</p>
@@ -165,7 +166,7 @@
       {/if}
 
       {#if data.creditPackPrice}
-        <div class="mt-s3 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s3 glass-panel p-s3 text-sm">
           <p class="font-medium">Credit pack price: {data.creditPackPrice.creditPack.name}</p>
           <p class="mt-1">Unit {data.creditPackPrice.priceItem.unitAmount.toFixed(2)} {data.creditPackPrice.priceBook.currency}</p>
           <p class="text-muted-foreground">Tax {data.creditPackPrice.priceItem.taxAmount.toFixed(2)}</p>
@@ -177,7 +178,7 @@
       <h2 class="text-base font-semibold">Discount overrides (invoice issue flow)</h2>
       <p class="mt-s1 text-sm text-muted-foreground">Create invoice lines with discount percent and reason; backend enforces override policy and immutability.</p>
 
-      <form method="POST" action="?/issueDiscountInvoice" class="mt-s4 space-y-s3">
+      <form method="POST" action="?/issueDiscountInvoice" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/30 p-s4">
         <div class="space-y-s2">
           <Label for="customer-user-id">Customer user ID (optional)</Label>
           <Input id="customer-user-id" name="customerUserId" bind:value={invoiceCustomerUserId} />
@@ -186,7 +187,7 @@
         <div class="grid gap-s3 md:grid-cols-2">
           <div class="space-y-s2">
             <Label for="line-type">Line type</Label>
-            <select id="line-type" name="lineType" bind:value={invoiceLineType} class="h-10 w-full rounded-md border bg-background px-3 text-sm">
+            <select id="line-type" name="lineType" bind:value={invoiceLineType} class="field-select">
               <option value="MEMBERSHIP_PLAN">MEMBERSHIP_PLAN</option>
               <option value="CREDIT_PACK">CREDIT_PACK</option>
             </select>
@@ -228,7 +229,7 @@
       </form>
 
       {#if issuedInvoice}
-        <div class="mt-s4 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s4 glass-panel p-s3 text-sm">
           <p>Issued {issuedInvoice.invoiceNumber} ({issuedInvoice.invoiceId})</p>
           {#if issuedInvoiceDetail?.discountOverrides?.length}
             <p class="mt-1 text-muted-foreground">Overrides recorded: {issuedInvoiceDetail.discountOverrides.length}</p>
@@ -243,7 +244,7 @@
       <h2 class="text-base font-semibold">Audit logs (workflow event trail)</h2>
       <p class="mt-s1 text-sm text-muted-foreground">Searchable event stream (run/user/type/date). This is the current audit stream exposed by API.</p>
 
-      <form method="GET" class="mt-s4 grid gap-s3 md:grid-cols-2">
+      <form method="GET" class="mt-s4 grid gap-s3 rounded-lg border border-border/70 bg-background/30 p-s4 md:grid-cols-2">
         <div class="space-y-s2">
           <Label for="audit-run-id">Run ID</Label>
           <Input id="audit-run-id" name="auditRunId" bind:value={auditRunId} />
@@ -280,7 +281,7 @@
             rows={data.audit.events.slice(0, 10).map((event) => [new Date(event.createdAt).toLocaleString(), event.eventType, event.workflowRunId.slice(0, 8) + '…', event.actorUserId ? event.actorUserId.slice(0, 8) + '…' : '-'])}
           />
           {#if data.audit.events[0]}
-            <div class="mt-s3 rounded-md border bg-background/70 p-s3 text-xs text-muted-foreground">
+            <div class="mt-s3 glass-panel p-s3 text-xs text-muted-foreground">
               Detail payload sample: {JSON.stringify(data.audit.events[0].eventData)}
             </div>
           {/if}
@@ -292,7 +293,7 @@
       <h2 class="text-base font-semibold">Webhook logs and failures</h2>
       <p class="mt-s1 text-sm text-muted-foreground">Delivery status stream, failure alerts, and acknowledgment actions.</p>
 
-      <form method="GET" class="mt-s4 grid gap-s3 md:grid-cols-2">
+      <form method="GET" class="mt-s4 grid gap-s3 rounded-lg border border-border/70 bg-background/30 p-s4 md:grid-cols-2">
         <div class="space-y-s2">
           <Label for="webhook-event-key">Event key</Label>
           <Input id="webhook-event-key" name="webhookEventKey" bind:value={webhookEventKey} />
@@ -318,7 +319,7 @@
         </div>
       </form>
 
-      <form method="POST" action="?/dispatchWebhooksNow" class="mt-s3 inline-flex gap-s2">
+      <form method="POST" action="?/dispatchWebhooksNow" class="mt-s3 inline-flex flex-wrap gap-s2 rounded-lg border border-border/70 bg-background/30 p-s3">
         <Input name="limit" bind:value={dispatchLimit} className="w-28" />
         <Button type="submit" variant="ghost">Dispatch due now</Button>
       </form>
@@ -332,7 +333,7 @@
         </div>
       {/if}
 
-      <form method="POST" action="?/acknowledgeWebhookAlert" class="mt-s4 space-y-s2 rounded-md border bg-background/70 p-s3">
+      <form method="POST" action="?/acknowledgeWebhookAlert" class="mt-s4 space-y-s2 rounded-md border border-border/70 bg-background/35 p-s3">
         <Label for="ack-alert-id">Acknowledge alert ID</Label>
         <div class="flex gap-s2">
           <Input id="ack-alert-id" name="alertId" bind:value={ackAlertId} />
@@ -341,7 +342,7 @@
       </form>
 
       {#if data.webhookAlerts?.alerts}
-        <div class="mt-s3 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s3 glass-panel p-s3 text-sm">
           <p>Open/filtered alerts: {data.webhookAlerts.alerts.length}</p>
           {#if data.webhookAlerts.alerts[0]}
             <p class="mt-1 text-muted-foreground">Latest: {data.webhookAlerts.alerts[0].id} · {data.webhookAlerts.alerts[0].status}</p>
@@ -364,7 +365,7 @@
         Backend exposes runtime protections (lockout, rate-limit, signed requests, idempotency) as middleware. Config mutation endpoints are not exposed.
       </p>
 
-      <div class="mt-s4 rounded-md border bg-background/70 p-s3 text-sm">
+      <div class="mt-s4 glass-panel p-s3 text-sm">
         <p>Admin health endpoint: <span class="font-medium">{data.securityHealth?.status ?? 'unavailable'}</span></p>
         <p class="mt-1 text-muted-foreground">Use compose env (`.env.qa`) to configure lockout/rate-limit values for QA.</p>
       </div>
@@ -374,7 +375,7 @@
       <h2 class="text-base font-semibold">Consent and privacy controls</h2>
       <p class="mt-s1 text-sm text-muted-foreground">Update user notification muting controls (current privacy endpoints exposed by backend).</p>
 
-      <form method="GET" class="mt-s4 space-y-s3">
+      <form method="GET" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/30 p-s4">
         <div class="space-y-s2">
           <Label for="privacy-user-id">User ID</Label>
           <Input id="privacy-user-id" name="privacyUserId" bind:value={privacyUserId} />
@@ -383,11 +384,11 @@
       </form>
 
       {#if data.privacyPreference?.preference}
-        <form method="POST" action="?/updatePrivacyControls" class="mt-s4 space-y-s3 rounded-md border bg-background/70 p-s3">
+        <form method="POST" action="?/updatePrivacyControls" class="mt-s4 space-y-s3 rounded-md border border-border/70 bg-background/35 p-s3">
           <input type="hidden" name="userId" value={privacyUserId} />
           <div class="space-y-s2">
             <Label for="global-muted">Global muted</Label>
-            <select id="global-muted" name="globalMuted" bind:value={globalMuted} class="h-10 w-full rounded-md border bg-background px-3 text-sm">
+            <select id="global-muted" name="globalMuted" bind:value={globalMuted} class="field-select">
               <option value={false}>false</option>
               <option value={true}>true</option>
             </select>

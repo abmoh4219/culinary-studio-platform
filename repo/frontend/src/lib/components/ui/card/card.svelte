@@ -4,6 +4,9 @@
   export let className = '';
 </script>
 
-<section class={cn('rounded-xl border bg-card text-card-foreground shadow-sm', className)} {...$$restProps}>
+<section
+  class={cn('hero-surface text-card-foreground surface-transition', className)}
+  {...$$restProps}
+>
   <slot />
 </section>

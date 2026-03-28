@@ -8,17 +8,17 @@
   :root {
     color-scheme: light;
 
-    --background: 205 33% 98%;
-    --foreground: 218 22% 17%;
+    --background: 212 40% 98%;
+    --foreground: 220 20% 14%;
     --card: 0 0% 100%;
     --card-foreground: 218 22% 17%;
-    --primary: 219 68% 47%;
-    --primary-foreground: 210 40% 98%;
-    --muted: 213 28% 94%;
-    --muted-foreground: 217 14% 43%;
-    --border: 214 27% 86%;
-    --input: 214 27% 86%;
-    --ring: 219 68% 47%;
+    --primary: 190 85% 48%;
+    --primary-foreground: 223 47% 12%;
+    --muted: 213 31% 93%;
+    --muted-foreground: 218 15% 39%;
+    --border: 214 23% 84%;
+    --input: 214 23% 84%;
+    --ring: 190 85% 48%;
 
     --space-1: 0.25rem;
     --space-2: 0.5rem;
@@ -48,17 +48,17 @@
   :root.dark {
     color-scheme: dark;
 
-    --background: 221 39% 9%;
-    --foreground: 215 33% 92%;
-    --card: 220 34% 12%;
-    --card-foreground: 215 33% 92%;
-    --primary: 214 88% 64%;
-    --primary-foreground: 220 45% 9%;
-    --muted: 220 23% 18%;
-    --muted-foreground: 217 14% 68%;
-    --border: 218 23% 24%;
-    --input: 218 23% 24%;
-    --ring: 214 88% 64%;
+    --background: 222 47% 7%;
+    --foreground: 214 34% 93%;
+    --card: 220 38% 11%;
+    --card-foreground: 214 34% 93%;
+    --primary: 188 92% 63%;
+    --primary-foreground: 222 47% 8%;
+    --muted: 220 27% 16%;
+    --muted-foreground: 217 16% 70%;
+    --border: 218 24% 22%;
+    --input: 218 24% 22%;
+    --ring: 188 92% 63%;
 
     --shadow-xs: 0 1px 2px hsl(220 70% 2% / 0.45);
     --shadow-sm: 0 1px 3px hsl(220 70% 2% / 0.55), 0 1px 2px hsl(220 70% 2% / 0.3);
@@ -83,8 +83,9 @@
     @apply min-h-screen bg-background text-foreground;
     transition: background-color 180ms ease, color 180ms ease;
     background-image:
-      radial-gradient(circle at 0% 0%, hsl(var(--primary) / 0.12), transparent 40%),
-      radial-gradient(circle at 100% 100%, hsl(204 84% 43% / 0.08), transparent 45%);
+      radial-gradient(circle at 8% 8%, hsl(var(--primary) / 0.16), transparent 35%),
+      radial-gradient(circle at 84% 92%, hsl(36 95% 62% / 0.08), transparent 36%),
+      linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--background)) 100%);
   }
 
   :focus-visible {
@@ -95,6 +96,42 @@
 }
 
 @layer utilities {
+  .app-canvas {
+    background-image:
+      radial-gradient(circle at 5% 10%, hsl(var(--primary) / 0.14), transparent 33%),
+      radial-gradient(circle at 94% 86%, hsl(190 85% 52% / 0.08), transparent 35%);
+  }
+
+  .hero-surface {
+    @apply rounded-xl border bg-card/85 shadow-lg backdrop-blur;
+    border-color: hsl(var(--border) / 0.8);
+  }
+
+  .section-eyebrow {
+    @apply text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground;
+  }
+
+  .glass-panel {
+    @apply rounded-lg border bg-card/75 shadow-md backdrop-blur;
+    border-color: hsl(var(--border) / 0.75);
+  }
+
+  .field-select {
+    @apply h-10 w-full rounded-md border border-border/80 bg-card/80 px-3 text-sm text-foreground shadow-xs surface-transition;
+  }
+
+  .field-select:hover {
+    @apply bg-card;
+  }
+
+  .field-select:focus-visible {
+    @apply ring-2 ring-ring/60;
+  }
+
+  .status-pill {
+    @apply inline-flex items-center rounded-full border border-border/70 bg-muted/50 px-3 py-1 text-xs font-medium tracking-wide text-muted-foreground;
+  }
+
   .surface-transition {
     transition-property: background-color, border-color, color, box-shadow, transform, opacity;
     transition-duration: 180ms;

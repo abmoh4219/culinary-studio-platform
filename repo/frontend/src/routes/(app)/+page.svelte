@@ -37,13 +37,13 @@
   <Card className="p-s6 md:p-s8">
     <div class="flex flex-wrap items-start justify-between gap-s4">
       <div>
-        <p class="text-xs uppercase tracking-[0.2em] text-muted-foreground">Overview Stub</p>
-        <h2 class="mt-s2 text-2xl font-semibold tracking-tight md:text-3xl">Premium Placeholder Dashboard</h2>
+        <p class="section-eyebrow">Studio Operations</p>
+        <h2 class="mt-s2 text-2xl font-semibold tracking-tight md:text-3xl">Command Surface</h2>
         <p class="mt-s3 max-w-2xl text-sm leading-6 text-muted-foreground md:text-base">
-          Route-protected shell with design-system primitives, skeleton states, and global toast wiring.
+          Monitor momentum across bookings, workflows, and reliability signals in one polished workspace.
         </p>
       </div>
-      <Button on:click={() => toast.success('Preview action completed', { description: 'Global toast is wired.' })}>
+      <Button variant="secondary" on:click={() => toast.success('Action completed', { description: 'Global notifications are active.' })}>
         Trigger Toast
       </Button>
     </div>
@@ -71,19 +71,19 @@
 
   <section class="grid gap-s4 xl:grid-cols-[1.5fr_1fr]">
     <Card className="p-s6">
-      <h3 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Card List Skeleton</h3>
+      <h3 class="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Operational Notes</h3>
       <div class="mt-s4 space-y-s3">
         {#if loading}
           {#each Array.from({ length: 3 }) as _row}
-            <div class="rounded-lg border p-s4">
+            <div class="glass-panel p-s4">
               <Skeleton className="h-3 w-36" />
               <Skeleton className="mt-s3 h-3 w-3/4" />
             </div>
           {/each}
         {:else}
-          <div class="rounded-lg border bg-background/80 px-s4 py-s4">Design tokens are active for spacing, radius, border, and shadow.</div>
-          <div class="rounded-lg border bg-background/80 px-s4 py-s4">Animations are subtle and disabled under reduced-motion preference.</div>
-          <div class="rounded-lg border bg-background/80 px-s4 py-s4">Route-group guards enforce role-based shell access.</div>
+          <div class="glass-panel px-s4 py-s4">Design tokens now align with the sign-in experience: atmospheric surfaces, cyan accent discipline, and consistent hierarchy.</div>
+          <div class="glass-panel px-s4 py-s4">Motion remains subtle and respects reduced-motion preferences.</div>
+          <div class="glass-panel px-s4 py-s4">Role-guarded route groups continue to protect workspace access.</div>
         {/if}
       </div>
     </Card>

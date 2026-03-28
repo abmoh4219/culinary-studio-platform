@@ -1,10 +1,16 @@
-import { env } from '$env/dynamic/public';
+import { env as privateEnv } from '$env/dynamic/private';
+import { env as publicEnv } from '$env/dynamic/public';
 import type { RequestEvent } from '@sveltejs/kit';
 
 type ApiEvent = Pick<RequestEvent, 'fetch' | 'request'>;
 
 function apiBaseUrl(): string {
-  return env.PUBLIC_API_BASE_URL || 'http://localhost:4000/api/v1';
+  return (
+    privateEnv.API_INTERNAL_BASE_URL ||
+    privateEnv.PUBLIC_API_BASE_URL ||
+    publicEnv.PUBLIC_API_BASE_URL ||
+    'http://localhost:4000/api/v1'
+  );
 }
 
 export async function fetchApiJson<T>(event: ApiEvent, path: string): Promise<T> {

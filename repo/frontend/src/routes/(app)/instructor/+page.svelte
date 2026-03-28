@@ -77,16 +77,17 @@
   }
 </script>
 
-<div class="space-y-s6 pb-s12">
-  <div class="flex items-center justify-between gap-s3">
-    <a href="/" class="inline-flex items-center gap-s2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+<div class="space-y-s8 pb-s12">
+  <div class="flex flex-wrap items-center justify-between gap-s3">
+    <a href="/" class="inline-flex items-center gap-s2 rounded-full border border-border/70 bg-card/60 px-s3 py-s2 text-sm text-muted-foreground surface-transition hover:bg-muted/60 hover:text-foreground">
       ← Back to shell
     </a>
-    <p class="text-xs uppercase tracking-[0.18em] text-muted-foreground">Instructor Workspace</p>
+    <p class="section-eyebrow">Instructor Workspace</p>
   </div>
 
   <Card className="p-s6 md:p-s8">
-    <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Class Management</h1>
+    <p class="section-eyebrow">Class Operations</p>
+    <h1 class="mt-s2 text-2xl font-semibold tracking-tight md:text-3xl">Class management and live control</h1>
     <p class="mt-s2 max-w-3xl text-sm text-muted-foreground md:text-base">
       Manage assigned class runs, push schedule changes through booking endpoints, and monitor session capacity and attendance.
     </p>
@@ -104,7 +105,7 @@
           {#each data.activeRuns as run}
             <a
               href={`/instructor?runId=${run.id}&sessionKey=${encodeURIComponent(monitorSessionKey)}&startAt=${encodeURIComponent(monitorStartAt)}&endAt=${encodeURIComponent(monitorEndAt)}&capacity=${encodeURIComponent(monitorCapacity)}`}
-              class="block rounded-md border px-s3 py-s3 transition-colors hover:bg-muted {data.selectedRunId === run.id ? 'bg-muted' : ''}"
+              class="block rounded-md border border-border/70 bg-background/30 px-s3 py-s3 surface-transition hover:bg-muted/60 {data.selectedRunId === run.id ? 'border-primary/60 bg-primary/10' : ''}"
             >
               <p class="text-sm font-medium">Run {run.id.slice(0, 8)}…</p>
               <p class="mt-1 text-xs text-muted-foreground">Recipe {run.recipeId.slice(0, 8)}… · {run.status}</p>
@@ -113,7 +114,7 @@
         {/if}
       </div>
 
-      <form method="POST" action="?/createClassRun" class="mt-s5 space-y-s3 rounded-lg border bg-background/70 p-s4">
+      <form method="POST" action="?/createClassRun" class="mt-s5 space-y-s3 rounded-lg border border-border/70 bg-background/35 p-s4">
         <p class="text-sm font-semibold">Create class run</p>
         <div class="space-y-s2">
           <Label for="create-recipe-id">Recipe ID</Label>
@@ -135,7 +136,7 @@
 
       {#if selectedRun}
         <div class="mt-s3 space-y-s3">
-          <div class="rounded-lg border bg-background/70 p-s3">
+          <div class="glass-panel p-s3">
             <p class="text-sm">Run ID: <span class="font-medium">{selectedRun.run.id}</span></p>
             <p class="mt-1 text-sm text-muted-foreground">
               Status: {selectedRun.run.status} · Phase {selectedRun.run.currentPhaseNumber ?? '-'} ·
@@ -162,11 +163,11 @@
           </div>
 
           <div class="grid gap-s3 md:grid-cols-2">
-            <form method="POST" action="?/runControl" class="space-y-s2 rounded-md border bg-background/70 p-s3">
+            <form method="POST" action="?/runControl" class="space-y-s2 rounded-md border border-border/70 bg-background/35 p-s3">
               <p class="text-sm font-medium">Complete step</p>
               <input type="hidden" name="runId" value={selectedRun.run.id} />
               <input type="hidden" name="actionKind" value="complete" />
-              <select name="runStepId" class="h-10 w-full rounded-md border bg-background px-3 text-sm">
+              <select name="runStepId" class="field-select">
                 {#each selectedRun.run.steps as step}
                   <option value={step.id}>{step.phaseNumber}.{step.positionInPhase} - {step.titleSnapshot} ({step.status})</option>
                 {/each}
@@ -174,11 +175,11 @@
               <Button type="submit" className="w-full">Complete selected step</Button>
             </form>
 
-            <form method="POST" action="?/runControl" class="space-y-s2 rounded-md border bg-background/70 p-s3">
+            <form method="POST" action="?/runControl" class="space-y-s2 rounded-md border border-border/70 bg-background/35 p-s3">
               <p class="text-sm font-medium">Rollback step</p>
               <input type="hidden" name="runId" value={selectedRun.run.id} />
               <input type="hidden" name="actionKind" value="rollback" />
-              <select name="runStepId" class="h-10 w-full rounded-md border bg-background px-3 text-sm">
+              <select name="runStepId" class="field-select">
                 {#each selectedRun.run.steps as step}
                   <option value={step.id}>{step.phaseNumber}.{step.positionInPhase} - {step.titleSnapshot} ({step.status})</option>
                 {/each}
@@ -199,7 +200,7 @@
       <h2 class="text-base font-semibold">Schedule changes</h2>
       <p class="mt-s1 text-sm text-muted-foreground">Update class schedule via booking reschedule endpoint.</p>
 
-      <form method="POST" action="?/rescheduleSession" class="mt-s4 space-y-s3">
+      <form method="POST" action="?/rescheduleSession" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/30 p-s4">
         <div class="space-y-s2">
           <Label for="schedule-booking-id">Booking ID</Label>
           <Input id="schedule-booking-id" name="bookingId" bind:value={scheduleBookingId} aria-invalid={form?.fields?.bookingId ? 'true' : 'false'} />
@@ -249,7 +250,7 @@
       <h2 class="text-base font-semibold">Cancel class session</h2>
       <p class="mt-s1 text-sm text-muted-foreground">Preview policy and fee, then confirm cancel.</p>
 
-      <form method="POST" action="?/previewCancellation" class="mt-s4 space-y-s3">
+      <form method="POST" action="?/previewCancellation" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/30 p-s4">
         <div class="space-y-s2">
           <Label for="cancel-booking-id">Booking ID</Label>
           <Input id="cancel-booking-id" name="bookingId" bind:value={cancelBookingId} />
@@ -262,14 +263,14 @@
       </form>
 
       {#if cancelPreview}
-        <div class="mt-s4 rounded-md border bg-background/70 p-s3 text-sm">
+        <div class="mt-s4 glass-panel p-s3 text-sm">
           <p>Policy: <span class="font-medium">{cancelPreview.preview.policyBand}</span></p>
           <p class="mt-1">Fee: <span class="font-medium">{cancelPreview.preview.feePercent}%</span></p>
           <p class="mt-1">Amount: <span class="font-medium">${cancelPreview.preview.feeAmount.toFixed(2)}</span></p>
         </div>
       {/if}
 
-      <form method="POST" action="?/confirmCancellation" class="mt-s4 space-y-s3">
+      <form method="POST" action="?/confirmCancellation" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/30 p-s4">
         <input type="hidden" name="bookingId" value={cancelBookingId} />
         <input type="hidden" name="baseAmount" value={cancelBaseAmount} />
         <div class="space-y-s2">
@@ -291,7 +292,7 @@
     <h2 class="text-base font-semibold">Session monitoring</h2>
     <p class="mt-s1 text-sm text-muted-foreground">Near-live attendance, capacity, and queue status.</p>
 
-    <form method="GET" class="mt-s4 grid gap-s3 md:grid-cols-2 xl:grid-cols-4">
+    <form method="GET" class="mt-s4 grid gap-s3 rounded-lg border border-border/70 bg-background/30 p-s4 md:grid-cols-2 xl:grid-cols-4">
       <div class="space-y-s2">
         <Label for="monitor-session-key">Session key</Label>
         <Input id="monitor-session-key" name="sessionKey" bind:value={monitorSessionKey} />
@@ -324,15 +325,15 @@
 
     {#if data.monitoring.availability}
       <div class="mt-s4 grid gap-s3 md:grid-cols-3">
-        <div class="rounded-md border bg-background/70 p-s3">
+        <div class="glass-panel p-s3">
           <p class="text-xs uppercase tracking-wide text-muted-foreground">Active attendance</p>
           <p class="mt-1 text-2xl font-semibold">{data.monitoring.availability.activeBookings}</p>
         </div>
-        <div class="rounded-md border bg-background/70 p-s3">
+        <div class="glass-panel p-s3">
           <p class="text-xs uppercase tracking-wide text-muted-foreground">Remaining capacity</p>
           <p class="mt-1 text-2xl font-semibold">{data.monitoring.availability.remainingCapacity}</p>
         </div>
-        <div class="rounded-md border bg-background/70 p-s3">
+        <div class="glass-panel p-s3">
           <p class="text-xs uppercase tracking-wide text-muted-foreground">Fill rate</p>
           <p class="mt-1 text-2xl font-semibold">
             {attendancePercent(data.monitoring.availability.activeBookings, data.monitoring.availability.capacity)}%
@@ -340,7 +341,7 @@
         </div>
       </div>
 
-      <div class="mt-s4 rounded-md border bg-background/70 p-s3">
+      <div class="mt-s4 glass-panel p-s3">
         <div class="flex items-center justify-between">
           <p class="text-sm font-medium">Waitlist status</p>
           <p class="text-xs text-muted-foreground">{data.monitoring.waitlist?.entries.length ?? 0} entries</p>
@@ -358,7 +359,7 @@
               </thead>
               <tbody>
                 {#each data.monitoring.waitlist.entries as entry}
-                  <tr class="border-t">
+                <tr class="border-t border-border/70">
                     <td class="py-2 font-medium">#{entry.queuePosition}</td>
                     <td class="py-2">{entry.status}</td>
                     <td class="py-2 text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</td>

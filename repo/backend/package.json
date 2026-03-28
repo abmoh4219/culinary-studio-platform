@@ -9,6 +9,9 @@
     "start": "node dist/server.js",
     "start:docker": "sh ./scripts/docker-entrypoint.sh",
     "seed:qa": "node prisma/seed.qa.cjs",
+    "test:unit": "vitest run --config vitest.config.ts ../unit_tests/backend",
+    "test:api": "vitest run --config vitest.config.ts ../API_tests",
+    "test": "vitest run --config vitest.config.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy"
@@ -31,6 +34,7 @@
     "fast-check": "^3.23.2",
     "prisma": "6.6.0",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.9"
   }
 }

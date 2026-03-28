@@ -73,7 +73,8 @@
   </div>
 
   <Card className="p-s6 md:p-s8">
-    <h1 class="text-2xl font-semibold tracking-tight md:text-3xl">Operational Analytics</h1>
+    <p class="section-eyebrow">Analytics Workspace</p>
+    <h1 class="mt-s2 text-2xl font-semibold tracking-tight md:text-3xl">Operational Analytics</h1>
     <p class="mt-s2 max-w-4xl text-sm text-muted-foreground md:text-base">
       Live charts and drill-down views powered by backend analytics APIs, with permissioned CSV exports wired to server endpoints.
     </p>
@@ -97,7 +98,7 @@
       </div>
       <div class="xl:col-span-4">
         <button
-          class="inline-flex h-12 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          class="inline-flex h-12 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground shadow-sm surface-transition hover:bg-primary/90"
           type="submit"
         >
           Apply filters
@@ -109,7 +110,7 @@
       {#each data.datasetExports as item}
         <a
           href={item.href}
-          class="inline-flex h-10 items-center justify-center rounded-md border px-4 text-sm font-medium transition-colors hover:bg-muted"
+          class="inline-flex h-10 items-center justify-center rounded-md border border-border/80 bg-card/70 px-4 text-sm font-medium surface-transition hover:bg-muted"
         >
           {item.label}
         </a>
