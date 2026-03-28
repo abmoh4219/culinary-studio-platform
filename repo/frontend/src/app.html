@@ -3,6 +3,28 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      (function () {
+        var storageKey = 'culinary-theme';
+        var fallback = 'system';
+        var value = fallback;
+
+        try {
+          var stored = localStorage.getItem(storageKey);
+          if (stored === 'light' || stored === 'dark' || stored === 'system') {
+            value = stored;
+          }
+        } catch (_error) {
+          value = fallback;
+        }
+
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var resolved = value === 'system' ? (prefersDark ? 'dark' : 'light') : value;
+
+        document.documentElement.classList.toggle('dark', resolved === 'dark');
+        document.documentElement.dataset.theme = value;
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
