@@ -14,8 +14,8 @@ type WaitlistResponse = {
   startAt: string;
   endAt: string;
   entries: Array<{
-    id: string;
-    userId: string;
+    id: string | null;
+    userId: string | null;
     queuePosition: number;
     status: 'WAITING' | 'OFFERED' | 'CONVERTED';
     offeredAt: string | null;

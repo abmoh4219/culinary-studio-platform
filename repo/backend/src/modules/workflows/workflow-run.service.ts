@@ -6,6 +6,7 @@ import {
 } from '../../../prisma/generated';
 import { prisma } from '../../lib/prisma';
 import { AuthError } from '../auth/auth.service';
+import { canManageBooking } from '../bookings/booking.service';
 
 type CreateRunInput = {
   actorUserId: string;
@@ -271,6 +272,33 @@ async function advanceRunState(tx: Prisma.TransactionClient, runId: string, now:
 }
 
 export async function createWorkflowRun(input: CreateRunInput) {
+  if (input.bookingId) {
+    const booking = await prisma.booking.findUnique({
+      where: {
+        id: input.bookingId
+      },
+      select: {
+        id: true,
+        userId: true
+      }
+    });
+
+    if (!booking) {
+      throw new AuthError('Booking not found', 404);
+    }
+
+    const allowed = await canManageBooking(prisma, {
+      actorUserId: input.actorUserId,
+      actorRoles: input.actorRoles,
+      bookingId: booking.id,
+      bookingOwnerUserId: booking.userId
+    });
+
+    if (!allowed) {
+      throw new AuthError('Not allowed to reference this booking', 403);
+    }
+  }
+
   const recipe = await prisma.recipe.findUnique({
     where: {
       id: input.recipeId

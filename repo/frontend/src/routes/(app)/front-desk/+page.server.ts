@@ -169,6 +169,7 @@ async function createBooking(event: RequestEvent) {
   const capacity = numberOrNull(formData, 'capacity');
   const partySize = numberOrNull(formData, 'partySize');
   const invoiceId = text(formData, 'invoiceId');
+  const userId = text(formData, 'userId');
   const priceBookId = text(formData, 'priceBookId');
   const priceBookItemId = text(formData, 'priceBookItemId');
   const notes = text(formData, 'notes');
@@ -187,6 +188,7 @@ async function createBooking(event: RequestEvent) {
   try {
     const result = await postApiJson<{ booking: { id: string; remainingCapacity: number } }>(event, '/bookings', {
       sessionKey,
+      userId: userId || undefined,
       seatKey,
       startAt,
       endAt,

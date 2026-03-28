@@ -7,7 +7,9 @@ import { createNotification } from '../notifications/notification.service';
 import { AuthError } from '../auth/auth.service';
 
 type CreateBookingInput = {
-  userId: string;
+  actorUserId?: string;
+  actorRoles?: string[];
+  userId?: string;
   userRoles: string[];
   sessionKey: string;
   seatKey: string;
@@ -621,6 +623,26 @@ export async function getBookingAvailability(input: AvailabilityInput) {
 }
 
 export async function createBooking(input: CreateBookingInput) {
+  const actorUserId = input.actorUserId ?? input.userId;
+  const actorRoles = input.actorRoles ?? [];
+  const targetUserId = input.userId ?? actorUserId;
+  const actingForAnotherUser = targetUserId !== actorUserId;
+
+  if (!actorUserId) {
+    throw new AuthError('Booking actor is required', 400);
+  }
+
+  if (!targetUserId) {
+    throw new AuthError('Booking user is required', 400);
+  }
+
+  const assuredActorUserId: string = actorUserId;
+  const assuredTargetUserId: string = targetUserId;
+
+  if (actingForAnotherUser && !isAdminRole(actorRoles) && !isFrontDeskRole(actorRoles)) {
+    throw new AuthError('Not allowed to create bookings for another user', 403);
+  }
+
   const { sessionKey, seatKey, startAt, endAt, partySize, capacity } = validateCreateInput(input);
 
   const opensAt = openingDateForUser(startAt, input.userRoles);
@@ -665,8 +687,8 @@ export async function createBooking(input: CreateBookingInput) {
 
     try {
       const booking = await createBookingInTx(tx, {
-        userId: input.userId,
-        createdByUserId: input.userId,
+        userId: assuredTargetUserId,
+        createdByUserId: assuredActorUserId,
         sessionKey,
         seatKey,
         startAt,

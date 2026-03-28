@@ -53,6 +53,7 @@ function resolveTrustProxy(): boolean | number {
 export function buildApp() {
   const env = getEnv();
   const app = Fastify({ logger: buildLoggerOptions(), trustProxy: resolveTrustProxy() });
+  const exposeOperationalDetails = env.NODE_ENV === 'development';
 
   app.addHook('onRequest', async (request) => {
     const path = request.url.split('?')[0] || '/';
@@ -76,32 +77,34 @@ export function buildApp() {
     credentials: true
   });
 
-  app.register(swagger, {
-    stripBasePath: false,
-    openapi: {
-      openapi: '3.0.3',
-      info: {
-        title: 'Culinary Studio API',
-        description: 'Versioned backend APIs for operations, billing, workflows, notifications, and analytics.',
-        version: '1.0.0'
-      },
-      servers: [{ url: '/' }],
-      tags: [
-        { name: 'auth' },
-        { name: 'analytics' },
-        { name: 'billing' },
-        { name: 'bookings' },
-        { name: 'notifications' },
-        { name: 'webhooks' },
-        { name: 'workflows' },
-        { name: 'system' }
-      ]
-    }
-  });
+  if (exposeOperationalDetails) {
+    app.register(swagger, {
+      stripBasePath: false,
+      openapi: {
+        openapi: '3.0.3',
+        info: {
+          title: 'Culinary Studio API',
+          description: 'Versioned backend APIs for operations, billing, workflows, notifications, and analytics.',
+          version: '1.0.0'
+        },
+        servers: [{ url: '/' }],
+        tags: [
+          { name: 'auth' },
+          { name: 'analytics' },
+          { name: 'billing' },
+          { name: 'bookings' },
+          { name: 'notifications' },
+          { name: 'webhooks' },
+          { name: 'workflows' },
+          { name: 'system' }
+        ]
+      }
+    });
 
-  app.register(swaggerUi, {
-    routePrefix: '/api/docs'
-  });
+    app.register(swaggerUi, {
+      routePrefix: '/api/docs'
+    });
+  }
 
   app.register(cookie, {
     hook: 'onRequest'
@@ -241,11 +244,18 @@ export function buildApp() {
     }
 
     const allReady = Object.values(checks).every((value) => value.ok);
-    return reply.code(allReady ? 200 : 503).send({
-      status: allReady ? 'ready' : 'not_ready',
-      checks
-    });
-  });
+     const status = allReady ? 'ready' : 'not_ready';
+     return reply.code(allReady ? 200 : 503).send(
+       exposeOperationalDetails
+         ? {
+             status,
+             checks
+           }
+         : {
+             status
+           }
+     );
+   });
 
   return app;
 }

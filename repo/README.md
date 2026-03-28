@@ -2,6 +2,18 @@
 
 ## Start
 
+Acceptance/runtime path (TLS on LAN):
+
+```bash
+AUTH_COOKIE_SECURE=true \
+TRUST_PROXY=true \
+CORS_ORIGIN=https://localhost \
+PUBLIC_API_BASE_URL=https://localhost/api/v1 \
+docker compose --profile tls up --build
+```
+
+Non-TLS local developer path:
+
 ```bash
 docker compose up --build
 ```
@@ -14,20 +26,22 @@ docker compose up --build -d
 
 ## URLs
 
-- Frontend: `http://localhost:5173`
-- Backend API: `http://localhost:4000/api/v1`
-- Swagger UI: `http://localhost:4000/api/docs`
+- TLS frontend: `https://localhost`
+- TLS backend API: `https://localhost/api/v1`
+- Direct frontend dev server: `http://localhost:5173`
+- Direct backend API: `http://localhost:4000/api/v1`
+- Swagger UI: development-only at `http://localhost:4000/api/docs`
 - PostgreSQL: internal Docker network only (`postgres:5432`)
 - Redis: internal Docker network only (`redis:6379`)
 
 ## Verify
 
 ```bash
-curl -sS http://localhost:4000/health
-curl -sS http://localhost:4000/health/ready
-curl -sS http://localhost:4000/api/v1/health
-curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:5173
-curl -sS -X POST http://localhost:4000/api/v1/auth/login \
+curl -k -sS https://localhost/health
+curl -k -sS https://localhost/health/ready
+curl -k -sS https://localhost/api/v1/health
+curl -k -sS -o /dev/null -w "%{http_code}\n" https://localhost
+curl -k -sS -X POST https://localhost/api/v1/auth/login \
   -H 'content-type: application/json' \
   -d '{"username":"qa.admin@culinary.local","password":"QaAdminPass123!"}'
 ```
@@ -42,13 +56,12 @@ docker compose ps
 
 Use the sign-in Email field with the seeded username string exactly as-is: admin `qa.admin@culinary.local` (password `QaAdminPass123!`) or member `qa.member@culinary.local` (password `QaMemberPass123!`); the login API field name is `username`, not `email`. QA requires seeded users (`SEED=1` in `.env.qa`): browser calls use `PUBLIC_API_BASE_URL=http://localhost:4000/api/v1`, while server-side frontend loads use `API_INTERNAL_BASE_URL=http://backend:4000/api/v1` in Docker.
 
-## HTTPS
-
-Default dev/QA uses HTTP only. If you need local HTTPS, front the stack with a local TLS terminator (for example Caddy or Nginx) and forward to the services above.
+- Member notification center: `/member/notifications`
+- Front desk on-behalf booking: `/front-desk` create booking form supports customer `userId`; staff can book for members, while members remain scoped to themselves.
 
 ### TLS on LAN (Caddy profile)
 
-The repo includes a Caddy profile at `infra/tls/Caddyfile` so QA can run HTTPS on LAN:
+The repo includes a Caddy profile at `infra/tls/Caddyfile` and this is the primary acceptance path for LAN/runtime verification:
 
 ```bash
 AUTH_COOKIE_SECURE=true \
@@ -60,6 +73,7 @@ docker compose --profile tls up --build
 
 - HTTPS entrypoint: `https://localhost`
 - API under proxy: `https://localhost/api/v1`
+- Health endpoints under proxy: `https://localhost/health` and `https://localhost/health/ready`
 - Caddy uses `tls internal` (local CA). Import/trust Caddy's local CA on test devices for browser trust.
 - `AUTH_COOKIE_SECURE=true` ensures auth cookies stay Secure under TLS.
 - `TRUST_PROXY=true` enables correct proxy-aware request handling behind TLS termination.
@@ -68,7 +82,7 @@ docker compose --profile tls up --build
 
 - Services bind to `0.0.0.0` for LAN access.
 - CORS is configured via compose env (`CORS_ORIGIN` in `.env.qa`).
-- Frontend API base is `http://localhost:4000/api/v1` by default.
+- Frontend API base is `https://localhost/api/v1` on the accepted TLS path.
 - No cloud runtime dependencies are required.
 
 ## Verified Runtime Guarantee
@@ -76,7 +90,8 @@ docker compose --profile tls up --build
 - `docker compose up --build` starts PostgreSQL, Redis, backend, and frontend without manual container edits.
 - Backend startup is deterministic: env validation runs on startup, and Docker entrypoint waits for database readiness before migrations/start.
 - Compose healthchecks are enabled for PostgreSQL and backend readiness (`/health/ready`).
-- `/health/ready` returns structured readiness JSON with config/database/redis checks.
+- `/health/ready` returns structured readiness JSON only in development; outside development it returns status-only readiness.
+- Swagger/OpenAPI docs are development-only and are not exposed on the accepted production-like path.
 
 ## Runtime Proof
 
@@ -87,7 +102,15 @@ Expected startup logs include lines similar to:
 - `[backend] Database is ready`
 - `Starting backend service`
 
-Expected readiness response:
+Expected readiness response on the accepted production-like path:
+
+```json
+{
+  "status": "ready"
+}
+```
+
+Expected readiness response in development:
 
 ```json
 {
@@ -103,9 +126,9 @@ Expected readiness response:
 Sample runtime verification commands:
 
 ```bash
-curl -sS http://localhost:4000/health
-curl -sS http://localhost:4000/health/ready
-curl -sS -X POST http://localhost:4000/api/v1/auth/login \
+curl -k -sS https://localhost/health
+curl -k -sS https://localhost/health/ready
+curl -k -sS -X POST https://localhost/api/v1/auth/login \
   -H 'content-type: application/json' \
   -d '{"username":"qa.admin@culinary.local","password":"QaAdminPass123!"}'
 ```
@@ -120,6 +143,7 @@ Covered domains in tests:
 - workflow
 - notification
 - security middleware (signed requests, idempotency, rate limiting, lockout)
+- frontend server-side protected mutation signing/idempotency
 
 Coverage assurances include:
 
@@ -128,6 +152,11 @@ Coverage assurances include:
 - booking lifecycle flows (create, conflict, waitlist, promotion, cancellation)
 - billing rules and invoice persistence snapshots
 - security enforcement (signature, idempotency, replay handling, rate limits)
+- workflow booking reference authorization
+- waitlist privacy/data minimization for non-staff users
+- operational exposure controls for docs/readiness outside development
+- webhook admin-only emit surface plus retry/dead-letter/failure-alert proof coverage
+- front-desk/admin on-behalf booking creation with persisted `createdByUserId` vs booking owner proof
 
 Example passing output snippet:
 

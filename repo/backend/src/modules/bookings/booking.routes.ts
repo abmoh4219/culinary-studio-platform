@@ -20,6 +20,7 @@ import {
 } from './booking.service';
 
 type CreateBookingBody = {
+  userId?: string;
   sessionKey: string;
   seatKey: string;
   startAt: string;
@@ -90,6 +91,7 @@ const availabilityQuerySchema = {
   additionalProperties: false,
   required: ['sessionKey', 'startAt', 'endAt', 'capacity'],
   properties: {
+    userId: { type: 'string', format: 'uuid' },
     sessionKey: { type: 'string', minLength: 1, maxLength: 80 },
     startAt: isoDateTime,
     endAt: isoDateTime,
@@ -206,14 +208,15 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
       try {
         const booking = await createBooking({
           ...request.body,
-          userId: request.user.sub,
+          actorUserId: request.user.sub,
+          actorRoles: request.user.roles ?? [],
           userRoles: request.user.roles ?? []
         });
 
         void createNotification({
           actorUserId: request.user.sub,
           actorRoles: request.user.roles ?? [],
-          userId: request.user.sub,
+          userId: booking.userId,
           scenario: NotificationScenario.BOOKING_SUCCESS,
           subject: 'Booking confirmed',
           payload: {
@@ -300,7 +303,9 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           ...result,
           entries: result.entries.map((entry) => ({
             ...entry,
-            userId: entry.userId === request.user.sub ? entry.userId : null
+            id: entry.userId === request.user.sub ? entry.id : null,
+            userId: entry.userId === request.user.sub ? entry.userId : null,
+            bookingId: entry.userId === request.user.sub ? entry.bookingId : null
           }))
         });
       } catch (error) {

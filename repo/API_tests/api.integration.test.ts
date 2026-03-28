@@ -2,18 +2,28 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const {
   loginUser,
+  createBooking,
   getBookingAvailability,
   getEffectivePriceBook,
   getActiveWorkflowRuns,
   getNotificationHistory,
-  getRecipeViewVolume
+  getRecipeViewVolume,
+  publishWebhookEvent,
+  queryWebhookLogs,
+  queryWebhookFailureAlerts,
+  acknowledgeWebhookFailureAlert
 } = vi.hoisted(() => ({
   loginUser: vi.fn(),
+  createBooking: vi.fn(),
   getBookingAvailability: vi.fn(),
   getEffectivePriceBook: vi.fn(),
   getActiveWorkflowRuns: vi.fn(),
   getNotificationHistory: vi.fn(),
-  getRecipeViewVolume: vi.fn()
+  getRecipeViewVolume: vi.fn(),
+  publishWebhookEvent: vi.fn(),
+  queryWebhookLogs: vi.fn(),
+  queryWebhookFailureAlerts: vi.fn(),
+  acknowledgeWebhookFailureAlert: vi.fn()
 }));
 
 vi.mock('../backend/src/modules/auth/auth.service', () => {
@@ -35,7 +45,7 @@ vi.mock('../backend/src/modules/auth/auth.service', () => {
 
 vi.mock('../backend/src/modules/bookings/booking.service', () => ({
   getBookingAvailability,
-  createBooking: vi.fn(),
+  createBooking,
   joinWaitlist: vi.fn(),
   getWaitlist: vi.fn(),
   previewCancellation: vi.fn(),
@@ -99,11 +109,23 @@ vi.mock('../backend/src/modules/analytics/analytics.service', () => ({
   getCompletionAccuracy: vi.fn()
 }));
 
+vi.mock('../backend/src/modules/webhooks/webhook.service', () => ({
+  createWebhookConfig: vi.fn(),
+  updateWebhookConfig: vi.fn(),
+  listWebhookConfigs: vi.fn(),
+  publishWebhookEvent,
+  dispatchDueWebhookLogs: vi.fn(),
+  queryWebhookLogs,
+  queryWebhookFailureAlerts,
+  acknowledgeWebhookFailureAlert
+}));
+
 vi.mock('../backend/src/modules/analytics/analytics-export.service', () => ({
   exportAnalyticsCsv: vi.fn()
 }));
 
 import { AUTH_COOKIE_NAME } from '../backend/src/modules/auth/auth.constants';
+import { AuthError } from '../backend/src/modules/auth/auth.service';
 import { buildApp } from '../backend/src/app';
 
 describe('API tests', () => {
@@ -247,6 +269,42 @@ describe('API tests', () => {
     expect(response.json().notifications[0].id).toBe('n1');
   });
 
+  it('notification history validates filters and supports empty results', async () => {
+    getNotificationHistory.mockResolvedValue({
+      filters: { limit: 10 },
+      notifications: []
+    });
+
+    const empty = await app.inject({
+      method: 'GET',
+      url: '/api/v1/notifications/history?limit=10',
+      headers: {
+        cookie: authCookie(['MEMBER'])
+      }
+    });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json().notifications).toEqual([]);
+
+    const invalidLimit = await app.inject({
+      method: 'GET',
+      url: '/api/v1/notifications/history?limit=0',
+      headers: {
+        cookie: authCookie(['MEMBER'])
+      }
+    });
+    expect(invalidLimit.statusCode).toBe(400);
+
+    getNotificationHistory.mockRejectedValueOnce(new AuthError('to must be after from', 400));
+    const inverted = await app.inject({
+      method: 'GET',
+      url: '/api/v1/notifications/history?from=2026-03-02T00:00:00.000Z&to=2026-03-01T00:00:00.000Z',
+      headers: {
+        cookie: authCookie(['MEMBER'])
+      }
+    });
+    expect(inverted.statusCode).toBe(400);
+  });
+
   it('analytics: admin endpoint enforces role guard', async () => {
     const forbidden = await app.inject({
       method: 'GET',
@@ -287,5 +345,88 @@ describe('API tests', () => {
     });
 
     expect(response.statusCode).toBe(403);
+  });
+
+  it('webhook emit requires admin role', async () => {
+    const anonymous = await app.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/emit',
+      payload: {
+        eventKey: 'booking.success',
+        payload: { bookingId: 'booking-1' }
+      }
+    });
+    expect(anonymous.statusCode).toBe(401);
+
+    const member = await app.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/emit',
+      headers: {
+        cookie: authCookie(['MEMBER'])
+      },
+      payload: {
+        eventKey: 'booking.success',
+        payload: { bookingId: 'booking-1' }
+      }
+    });
+    expect(member.statusCode).toBe(403);
+
+    publishWebhookEvent.mockResolvedValue({ eventKey: 'booking.success', queued: 1 });
+    const admin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/emit',
+      headers: {
+        cookie: authCookie(['ADMIN'])
+      },
+      payload: {
+        eventKey: 'booking.success',
+        payload: { bookingId: 'booking-1' }
+      }
+    });
+    expect(admin.statusCode).toBe(200);
+    expect(admin.json().queued).toBe(1);
+  });
+
+  it('webhook query endpoints enforce auth boundaries and support empty results', async () => {
+    queryWebhookLogs.mockResolvedValue({ filters: { limit: 10 }, logs: [] });
+    queryWebhookFailureAlerts.mockResolvedValue({ filters: { limit: 10 }, alerts: [] });
+    acknowledgeWebhookFailureAlert.mockResolvedValue({ id: 'alert-1', status: 'ACKNOWLEDGED' });
+
+    const memberLogs = await app.inject({
+      method: 'GET',
+      url: '/api/v1/webhooks/logs?limit=10',
+      headers: { cookie: authCookie(['MEMBER']) }
+    });
+    expect(memberLogs.statusCode).toBe(403);
+
+    const adminLogs = await app.inject({
+      method: 'GET',
+      url: '/api/v1/webhooks/logs?limit=10',
+      headers: { cookie: authCookie(['ADMIN']) }
+    });
+    expect(adminLogs.statusCode).toBe(200);
+    expect(adminLogs.json().logs).toEqual([]);
+
+    const invalidLimit = await app.inject({
+      method: 'GET',
+      url: '/api/v1/webhooks/logs?limit=0',
+      headers: { cookie: authCookie(['ADMIN']) }
+    });
+    expect(invalidLimit.statusCode).toBe(400);
+
+    const alerts = await app.inject({
+      method: 'GET',
+      url: '/api/v1/webhooks/failure-alerts?limit=10',
+      headers: { cookie: authCookie(['ADMIN']) }
+    });
+    expect(alerts.statusCode).toBe(200);
+    expect(alerts.json().alerts).toEqual([]);
+
+    const ack = await app.inject({
+      method: 'POST',
+      url: '/api/v1/webhooks/failure-alerts/alert-1/ack',
+      headers: { cookie: authCookie(['ADMIN']) }
+    });
+    expect(ack.statusCode).toBe(200);
   });
 });

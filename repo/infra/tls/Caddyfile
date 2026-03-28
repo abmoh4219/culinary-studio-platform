@@ -1,7 +1,7 @@
 :80, :443 {
   tls internal
 
-  @api path /api/* /health
+  @api path /api/* /health /health/*
   handle @api {
     reverse_proxy backend:4000
   }

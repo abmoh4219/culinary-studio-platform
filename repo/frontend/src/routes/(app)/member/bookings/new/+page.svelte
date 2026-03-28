@@ -32,7 +32,7 @@
   $: waitlist = waitlistFromAction ?? data.waitlist;
   $: myWaitlistEntry =
     waitlist?.entries?.find(
-      (entry: { userId: string }) => entry.userId === data.myWaitlistEntry?.userId
+      (entry) => entry.userId !== null && entry.userId === data.myWaitlistEntry?.userId
     ) ?? data.myWaitlistEntry;
 
   $: if (action && form?.success) {

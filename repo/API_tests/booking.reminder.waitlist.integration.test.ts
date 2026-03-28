@@ -248,7 +248,10 @@ describe('booking waitlist privacy and reminder authorization', () => {
     expect(response.statusCode).toBe(200);
     const entries = response.json().entries;
     expect(entries[0].userId).toBe('owner-1');
+    expect(entries[0].bookingId).toBeNull();
     expect(entries[1].userId).toBeNull();
+    expect(entries[1].bookingId).toBeNull();
+    expect(entries[1].id).toBeNull();
   });
 
   it('allows full waitlist user IDs for admin', async () => {

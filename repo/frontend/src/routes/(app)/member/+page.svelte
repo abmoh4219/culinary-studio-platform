@@ -42,6 +42,12 @@
       >
         Open recipe player
       </a>
+      <a
+        href="/member/notifications"
+        class="inline-flex h-10 items-center justify-center rounded-md border border-border/75 bg-card/75 px-s4 text-sm font-medium surface-transition hover:bg-muted"
+      >
+        Notification center
+      </a>
     </div>
   </Card>
 

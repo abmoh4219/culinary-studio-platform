@@ -128,6 +128,10 @@
         <input type="hidden" name="capacity" value={capacity} />
 
         <div class="space-y-s2">
+          <Label for="create-user-id">Customer user ID</Label>
+          <Input id="create-user-id" name="userId" bind:value={userId} placeholder="Member account UUID" />
+        </div>
+        <div class="space-y-s2">
           <Label for="create-seat-key">Seat key</Label>
           <Input id="create-seat-key" name="seatKey" bind:value={seatKey} aria-invalid={form?.fields?.seatKey ? 'true' : 'false'} />
         </div>
@@ -346,6 +350,6 @@
   </div>
 
   <Card className="p-s4 text-xs text-muted-foreground">
-    Note: API currently creates bookings for the authenticated user only; assigning bookings directly to arbitrary customers is not exposed by current backend routes.
+    Front desk and admins can create a booking on behalf of a customer by providing the customer user ID. Members remain limited to their own account scope.
   </Card>
 </div>

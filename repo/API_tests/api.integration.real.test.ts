@@ -27,6 +27,7 @@ describe('real backend integration (postgres + prisma migrations)', () => {
   let adminPrisma: any;
   let authCookieName = 'access_token';
   let bodyHashFn: (payload: unknown) => string;
+  let createBookingService: any;
 
   const seeded = {
     admin: { id: '', username: '', password: 'RealAdminPass123!' },
@@ -141,6 +142,33 @@ describe('real backend integration (postgres + prisma migrations)', () => {
     return user.id;
   }
 
+  async function seedRecipe(name: string): Promise<string> {
+    const recipe = await prisma.recipe.create({
+      data: {
+        code: `RECIPE-${randomUUID().slice(0, 8)}`,
+        name,
+        status: 'DRAFT',
+        version: 1,
+        steps: {
+          create: [
+            {
+              phaseNumber: 1,
+              positionInPhase: 1,
+              title: `${name} step`,
+              durationSeconds: 0,
+              waitSeconds: 0
+            }
+          ]
+        }
+      },
+      select: {
+        id: true
+      }
+    });
+
+    return recipe.id;
+  }
+
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     process.env.DATABASE_URL = integrationDatabaseUrl;
@@ -165,16 +193,18 @@ describe('real backend integration (postgres + prisma migrations)', () => {
 
     vi.resetModules();
 
-    const [{ PrismaClient, UserStatus, MembershipPlanStatus, PriceBookStatus, InvoiceLineType }, { hashPassword }, appModule, authConstants, securityUtils] = await Promise.all([
+    const [{ PrismaClient, UserStatus, MembershipPlanStatus, PriceBookStatus, InvoiceLineType }, { hashPassword }, appModule, authConstants, securityUtils, bookingServiceModule] = await Promise.all([
       import('../backend/prisma/generated'),
       import('../backend/src/modules/auth/password.service'),
       import('../backend/src/app'),
       import('../backend/src/modules/auth/auth.constants'),
-      import('../backend/src/modules/security/security.utils')
+      import('../backend/src/modules/security/security.utils'),
+      import('../backend/src/modules/bookings/booking.service')
     ]);
 
     bodyHashFn = securityUtils.bodyHash;
     authCookieName = authConstants.AUTH_COOKIE_NAME;
+    createBookingService = bookingServiceModule.createBooking;
 
     prisma = new PrismaClient({
       datasources: {
@@ -518,6 +548,14 @@ describe('real backend integration (postgres + prisma migrations)', () => {
     });
     expect(cancel.statusCode, 'Other member must not cancel another booking').toBe(403);
 
+    const reschedulePayload = {
+      newSessionKey: `${sessionKey}-new`,
+      newSeatKey: 'station-2',
+      newStartAt: utcIso(10),
+      newEndAt: utcIso(11),
+      capacity: 10
+    };
+
     const reschedule = await app.inject({
       method: 'POST',
       url: `/api/v1/bookings/${bookingId}/reschedule`,
@@ -526,24 +564,12 @@ describe('real backend integration (postgres + prisma migrations)', () => {
         ...signedHeaders({
           method: 'POST',
           path: `/api/v1/bookings/${bookingId}/reschedule`,
-          payload: {
-            newSessionKey: `${sessionKey}-new`,
-            newSeatKey: 'station-2',
-            newStartAt: utcIso(10),
-            newEndAt: utcIso(11),
-            capacity: 10
-          },
+          payload: reschedulePayload,
           nonce: `authz-res-${Date.now()}`,
           idempotencyKey: `authz-res-idem-${Date.now()}`
         })
       },
-      payload: {
-        newSessionKey: `${sessionKey}-new`,
-        newSeatKey: 'station-2',
-        newStartAt: utcIso(10),
-        newEndAt: utcIso(11),
-        capacity: 10
-      }
+      payload: reschedulePayload
     });
     expect(reschedule.statusCode, 'Other member must not reschedule another booking').toBe(403);
   }, 120000);
@@ -602,6 +628,130 @@ describe('real backend integration (postgres + prisma migrations)', () => {
       headers: { cookie: admin.cookie }
     });
     expect(adminPreview.statusCode, 'Admin should be allowed to manage booking').toBe(200);
+  }, 120000);
+
+  it('persists on-behalf booking ownership and blocks member impersonation', async () => {
+    const startAt = utcIso(13.5);
+    const endAt = utcIso(14.5);
+    const sessionKey = `behalf-${randomUUID().slice(0, 6)}`;
+
+    const staffResult = await createBookingService({
+      actorUserId: seeded.admin.id,
+      actorRoles: ['ADMIN'],
+      userId: seeded.memberB.id,
+      userRoles: ['ADMIN'],
+      sessionKey,
+      seatKey: 'station-1',
+      startAt,
+      endAt,
+      capacity: 4,
+      partySize: 1
+    });
+    expect(staffResult.id, 'Admin should be able to create for a customer').toBeTruthy();
+
+    const deskRow = await prisma.booking.findUnique({
+      where: { id: staffResult.id },
+      select: { userId: true, createdByUserId: true }
+    });
+    expect(deskRow?.userId).toBe(seeded.memberB.id);
+    expect(deskRow?.createdByUserId).toBe(seeded.admin.id);
+
+    await expect(
+      createBookingService({
+        actorUserId: seeded.memberA.id,
+        actorRoles: ['MEMBER'],
+        userId: seeded.memberB.id,
+        userRoles: ['MEMBER'],
+        sessionKey: `${sessionKey}-member`,
+        seatKey: 'station-3',
+        startAt: utcIso(17),
+        endAt: utcIso(18),
+        capacity: 4,
+        partySize: 1
+      })
+    ).rejects.toMatchObject({ statusCode: 403, message: 'Not allowed to create bookings for another user' });
+  }, 120000);
+
+  it('enforces workflow booking reference authorization on create', async () => {
+    const memberA = await login(seeded.memberA.username, seeded.memberA.password);
+    const memberB = await login(seeded.memberB.username, seeded.memberB.password);
+    const desk = await login(seeded.frontDesk.username, seeded.frontDesk.password);
+    const admin = await login(seeded.admin.username, seeded.admin.password);
+
+    const startAt = utcIso(14);
+    const endAt = utcIso(15);
+    const sessionKey = `workflow-${randomUUID().slice(0, 6)}`;
+    const recipeId = await seedRecipe('Workflow Auth Recipe');
+
+    const createBookingPayload = {
+      sessionKey,
+      seatKey: 'station-1',
+      startAt,
+      endAt,
+      capacity: 5,
+      partySize: 1
+    };
+    const bookingCreate = await app.inject({
+      method: 'POST',
+      url: '/api/v1/bookings',
+      headers: {
+        cookie: memberA.cookie,
+        ...signedHeaders({
+          method: 'POST',
+          path: '/api/v1/bookings',
+          payload: createBookingPayload,
+          nonce: `workflow-booking-${Date.now()}`,
+          idempotencyKey: `workflow-booking-idem-${Date.now()}`
+        })
+      },
+      payload: createBookingPayload
+    });
+    expect(bookingCreate.statusCode).toBe(201);
+    const bookingId = bookingCreate.json().booking.id as string;
+
+    const foreignAttempt = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workflows/runs',
+      headers: { cookie: memberB.cookie },
+      payload: {
+        recipeId,
+        bookingId
+      }
+    });
+    expect(foreignAttempt.statusCode, 'Other members must not reference another user booking in workflow runs').toBe(403);
+
+    const ownerAttempt = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workflows/runs',
+      headers: { cookie: memberA.cookie },
+      payload: {
+        recipeId,
+        bookingId
+      }
+    });
+    expect(ownerAttempt.statusCode, 'Booking owner should be allowed to create workflow runs').toBe(201);
+
+    const deskAttempt = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workflows/runs',
+      headers: { cookie: desk.cookie },
+      payload: {
+        recipeId,
+        bookingId
+      }
+    });
+    expect(deskAttempt.statusCode, 'Front desk should be allowed to reference booking workflows').toBe(201);
+
+    const adminAttempt = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workflows/runs',
+      headers: { cookie: admin.cookie },
+      payload: {
+        recipeId,
+        bookingId
+      }
+    });
+    expect(adminAttempt.statusCode, 'Admin should be allowed to reference booking workflows').toBe(201);
   }, 120000);
 
   it('creates invoice and persists immutable billing snapshots', async () => {
