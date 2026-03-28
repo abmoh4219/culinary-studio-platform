@@ -18,6 +18,20 @@ describe('security.utils', () => {
     expect(isProtectedBusinessAction(request)).toBe(true);
   });
 
+  it('identifies versioned API protected mutation routes', () => {
+    process.env.SECURITY_ACTION_PATH_PREFIXES = '/bookings,/billing';
+
+    const request = {
+      method: 'POST',
+      raw: {
+        url: '/api/v1/bookings?x=1'
+      }
+    } as any;
+
+    expect(getRequestPath(request)).toBe('/api/v1/bookings');
+    expect(isProtectedBusinessAction(request)).toBe(true);
+  });
+
   it('stableJsonStringify sorts object keys deterministically', () => {
     const value = {
       z: 1,

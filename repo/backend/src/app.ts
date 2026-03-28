@@ -4,9 +4,15 @@ import jwt from '@fastify/jwt';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import Fastify from 'fastify';
+import Redis from 'ioredis';
 
+import { getEnv } from './config/env';
+import { normalizeError, normalizeErrorPayload } from './lib/errors';
+import { buildLoggerOptions, childRequestLogger } from './lib/logger';
+import { prisma } from './lib/prisma';
 import { AUTH_COOKIE_NAME } from './modules/auth/auth.constants';
 import { resolveApiPrefix } from './modules/api/api-versioning';
+import { createAuditOnResponseHook } from './modules/audit/audit.hooks';
 import { v1Routes } from './modules/api/v1.routes';
 import { createIdempotencyMiddleware } from './modules/security/idempotency.middleware';
 import { createUserRateLimitMiddleware } from './modules/security/rate-limit.middleware';
@@ -26,8 +32,44 @@ function resolveCorsOrigin(): true | string[] {
   return origins.length > 0 ? origins : true;
 }
 
+function resolveTrustProxy(): boolean | number {
+  const raw = process.env.TRUST_PROXY;
+  if (!raw) {
+    return false;
+  }
+
+  if (raw === 'true') {
+    return true;
+  }
+
+  const parsed = Number(raw);
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return Math.floor(parsed);
+  }
+
+  return false;
+}
+
 export function buildApp() {
-  const app = Fastify({ logger: true });
+  const env = getEnv();
+  const app = Fastify({ logger: buildLoggerOptions(), trustProxy: resolveTrustProxy() });
+
+  app.addHook('onRequest', async (request) => {
+    const path = request.url.split('?')[0] || '/';
+    const module = path.split('/').filter(Boolean)[2] || 'system';
+    const action = `${request.method.toUpperCase()} ${path}`;
+    (request as any).log = childRequestLogger(request.log, {
+      correlationId: request.id,
+      module,
+      action
+    });
+  });
+
+  app.addHook('preHandler', async (request) => {
+    if (request.user?.sub) {
+      (request as any).log = request.log.child({ userId: request.user.sub });
+    }
+  });
 
   app.register(cors, {
     origin: resolveCorsOrigin(),
@@ -66,7 +108,7 @@ export function buildApp() {
   });
 
   app.register(jwt, {
-    secret: process.env.JWT_ACCESS_SECRET || 'development_access_secret',
+    secret: env.JWT_ACCESS_SECRET,
     cookie: {
       cookieName: AUTH_COOKIE_NAME,
       signed: false
@@ -79,6 +121,55 @@ export function buildApp() {
   const idempotencyMiddleware = createIdempotencyMiddleware();
   app.addHook('preHandler', idempotencyMiddleware.preHandler);
   app.addHook('onSend', idempotencyMiddleware.onSend);
+  app.addHook('onSend', async (_request, reply, payload) => {
+    if (reply.statusCode < 400) {
+      return payload;
+    }
+
+    if (typeof payload === 'string') {
+      try {
+        const parsed = JSON.parse(payload);
+        return JSON.stringify(normalizeErrorPayload(parsed, reply.statusCode));
+      } catch {
+        return payload;
+      }
+    }
+
+    return normalizeErrorPayload(payload, reply.statusCode);
+  });
+
+  app.setErrorHandler((error, request, reply) => {
+    if (reply.sent) {
+      request.log.warn({ err: error }, 'Error occurred after reply already sent');
+      return;
+    }
+
+    const normalized = normalizeError(error, process.env.NODE_ENV);
+    const level = normalized.statusCode >= 500 ? 'error' : 'warn';
+    request.log[level]({ err: error, statusCode: normalized.statusCode }, 'Unhandled request error');
+    reply.code(normalized.statusCode).send(normalized.body);
+  });
+
+  app.addHook('onResponse', async (request, reply) => {
+    const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method.toUpperCase());
+    const isAuthPath = request.url.startsWith('/api/v1/auth/');
+
+    if (reply.statusCode >= 500) {
+      request.log.error({ statusCode: reply.statusCode }, 'Request completed with server error');
+      return;
+    }
+
+    if (reply.statusCode >= 400) {
+      request.log.warn({ statusCode: reply.statusCode }, 'Request completed with client error');
+      return;
+    }
+
+    if (isMutation || isAuthPath) {
+      request.log.info({ statusCode: reply.statusCode }, 'Request completed');
+    }
+  });
+
+  app.addHook('onResponse', createAuditOnResponseHook());
 
   app.register(v1Routes, { prefix: resolveApiPrefix('v1') });
 
@@ -96,6 +187,65 @@ export function buildApp() {
       }
     }
   }, async () => ({ status: 'ok' }));
+
+  app.get('/health/ready', {
+    schema: {
+      tags: ['system'],
+      summary: 'Service readiness check',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            checks: { type: 'object' }
+          }
+        },
+        503: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            checks: { type: 'object' }
+          }
+        }
+      }
+    }
+  }, async (_request, reply) => {
+    const checks: Record<string, { ok: boolean; details?: string }> = {
+      config: { ok: true }
+    };
+
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      checks.database = { ok: true };
+    } catch {
+      checks.database = { ok: false, details: 'Database connection failed' };
+    }
+
+    if (env.REDIS_URL) {
+      const redis = new Redis(env.REDIS_URL, {
+        maxRetriesPerRequest: 0,
+        lazyConnect: true
+      });
+
+      try {
+        await redis.connect();
+        await redis.ping();
+        checks.redis = { ok: true };
+      } catch {
+        checks.redis = { ok: false, details: 'Redis connection failed' };
+      } finally {
+        redis.disconnect();
+      }
+    } else {
+      checks.redis = { ok: true, details: 'Redis not configured' };
+    }
+
+    const allReady = Object.values(checks).every((value) => value.ok);
+    return reply.code(allReady ? 200 : 503).send({
+      status: allReady ? 'ready' : 'not_ready',
+      checks
+    });
+  });
 
   return app;
 }

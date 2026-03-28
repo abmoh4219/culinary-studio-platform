@@ -41,10 +41,27 @@ function parsePrefixes(): string[] {
     .filter((segment) => segment.length > 0);
 }
 
+function normalizePath(path: string): string {
+  const queryStart = path.indexOf('?');
+  const withoutQuery = queryStart >= 0 ? path.slice(0, queryStart) : path;
+  const withLeadingSlash = withoutQuery.startsWith('/') ? withoutQuery : `/${withoutQuery}`;
+  return withLeadingSlash.length > 1 ? withLeadingSlash.replace(/\/+$/, '') : withLeadingSlash;
+}
+
+function stripVersionPrefix(path: string): string {
+  const normalized = normalizePath(path);
+  const match = normalized.match(/^\/api\/v\d+(\/.*|$)/);
+  if (!match) {
+    return normalized;
+  }
+
+  const rest = match[1] || '/';
+  return normalizePath(rest);
+}
+
 export function getRequestPath(request: FastifyRequest): string {
   const url = request.raw.url || '/';
-  const queryStart = url.indexOf('?');
-  return queryStart >= 0 ? url.slice(0, queryStart) : url;
+  return normalizePath(url);
 }
 
 export function isMutationRequest(request: FastifyRequest): boolean {
@@ -56,8 +73,16 @@ export function isProtectedBusinessAction(request: FastifyRequest): boolean {
     return false;
   }
 
-  const path = getRequestPath(request);
-  const prefixes = parsePrefixes();
+  const requestPath = getRequestPath(request);
+  const requestCandidates = Array.from(new Set([requestPath, stripVersionPrefix(requestPath)]));
 
-  return prefixes.some((prefix) => path.startsWith(prefix));
+  const prefixes = parsePrefixes().flatMap((prefix) => {
+    const normalized = normalizePath(prefix);
+    const stripped = stripVersionPrefix(normalized);
+    return normalized === stripped ? [normalized] : [normalized, stripped];
+  });
+
+  return requestCandidates.some((candidate) =>
+    prefixes.some((prefix) => candidate === prefix || candidate.startsWith(`${prefix}/`))
+  );
 }

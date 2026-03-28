@@ -107,11 +107,53 @@ type ReceivablesQuery = {
   userId?: string;
 };
 
+const effectivePriceBookQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    asOf: { type: 'string', format: 'date-time' },
+    currency: { type: 'string', pattern: '^[A-Z]{3}$' }
+  }
+} as const;
+
+const walletAdjustBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['amount'],
+  properties: {
+    userId: { type: 'string', minLength: 1, maxLength: 64 },
+    amount: { type: 'number', exclusiveMinimum: 0 },
+    currency: { type: 'string', pattern: '^[A-Z]{3}$' },
+    reason: { type: 'string', maxLength: 255 }
+  }
+} as const;
+
+const manualPaymentBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['invoiceId', 'method', 'amount'],
+  properties: {
+    invoiceId: { type: 'string', minLength: 1, maxLength: 64 },
+    method: { type: 'string', enum: ['CASH', 'CHECK', 'MANUAL_CARD'] },
+    amount: { type: 'number', exclusiveMinimum: 0 },
+    referenceNumber: { type: 'string', maxLength: 100 },
+    checkNumber: { type: 'string', maxLength: 100 },
+    cardLast4: { type: 'string', pattern: '^\\d{4}$' },
+    cardBrand: { type: 'string', maxLength: 40 },
+    cardAuthCode: { type: 'string', maxLength: 80 },
+    notes: { type: 'string', maxLength: 2000 },
+    receivedAt: { type: 'string', format: 'date-time' }
+  }
+} as const;
+
 export const billingRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: EffectivePriceBookQuery }>(
     '/price-books/effective',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        querystring: effectivePriceBookQuerySchema
+      }
     },
     async (request, reply) => {
       try {
@@ -327,7 +369,10 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: WalletAdjustBody }>(
     '/wallet/top-up',
     {
-      preHandler: [requireAuth, requireRoles(['ADMIN'])]
+      preHandler: [requireAuth, requireRoles(['ADMIN'])],
+      schema: {
+        body: walletAdjustBodySchema
+      }
     },
     async (request, reply) => {
       try {
@@ -353,7 +398,10 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: WalletAdjustBody }>(
     '/wallet/debit',
     {
-      preHandler: [requireAuth, requireRoles(['ADMIN'])]
+      preHandler: [requireAuth, requireRoles(['ADMIN'])],
+      schema: {
+        body: walletAdjustBodySchema
+      }
     },
     async (request, reply) => {
       try {
@@ -473,7 +521,10 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: RecordPaymentBody }>(
     '/payments/manual',
     {
-      preHandler: [requireAuth, requireRoles(['ADMIN'])]
+      preHandler: [requireAuth, requireRoles(['ADMIN'])],
+      schema: {
+        body: manualPaymentBodySchema
+      }
     },
     async (request, reply) => {
       try {

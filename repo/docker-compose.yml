@@ -37,6 +37,10 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env.qa
+    environment:
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
     ports:
       - "4000:4000"
     depends_on:
@@ -50,7 +54,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:4000/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+          "fetch('http://127.0.0.1:4000/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         ]
       interval: 10s
       timeout: 5s
@@ -66,6 +70,9 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env.qa
+    environment:
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:4000/api/v1}
+      API_INTERNAL_BASE_URL: ${API_INTERNAL_BASE_URL:-http://backend:4000/api/v1}
     ports:
       - "5173:5173"
     depends_on:
@@ -86,9 +93,30 @@ services:
     networks:
       - app_net
 
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["tls"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/tls/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks:
+      - app_net
+
 volumes:
   pg_data:
   redis_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   app_net:

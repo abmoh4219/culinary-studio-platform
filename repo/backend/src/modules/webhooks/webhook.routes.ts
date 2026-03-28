@@ -55,6 +55,72 @@ type FailureAlertQuery = {
   limit?: string;
 };
 
+const configBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'eventKey', 'endpoint', 'signingSecret'],
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 120 },
+    eventKey: { type: 'string', minLength: 1, maxLength: 80 },
+    endpoint: { type: 'string', minLength: 1, maxLength: 2048 },
+    signingSecret: { type: 'string', minLength: 1, maxLength: 255 },
+    status: { type: 'string', enum: Object.values(WebhookStatus) },
+    timeoutSeconds: { type: 'integer', minimum: 1, maximum: 120 },
+    maxRetries: { type: 'integer', minimum: 1, maximum: 20 },
+    headers: {
+      type: 'object',
+      additionalProperties: { type: 'string', maxLength: 400 }
+    }
+  }
+} as const;
+
+const configUpdateBodySchema = {
+  ...configBodySchema,
+  required: []
+} as const;
+
+const pagedQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    eventKey: { type: 'string', minLength: 1, maxLength: 80 },
+    deliveryStatus: { type: 'string', enum: Object.values(WebhookDeliveryStatus) },
+    status: { type: 'string', enum: Object.values(WebhookFailureAlertStatus) },
+    webhookConfigId: { type: 'string', minLength: 1, maxLength: 64 },
+    from: { type: 'string', format: 'date-time' },
+    to: { type: 'string', format: 'date-time' },
+    limit: { type: 'string', pattern: '^[1-9]\\d{0,2}$' }
+  }
+} as const;
+
+const configIdParamsSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['configId'],
+  properties: {
+    configId: { type: 'string', minLength: 1, maxLength: 64 }
+  }
+} as const;
+
+const emitBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['eventKey', 'payload'],
+  properties: {
+    eventKey: { type: 'string', minLength: 1, maxLength: 80 },
+    payload: {
+      anyOf: [
+        { type: 'object' },
+        { type: 'array' },
+        { type: 'string' },
+        { type: 'number' },
+        { type: 'boolean' },
+        { type: 'null' }
+      ]
+    }
+  }
+} as const;
+
 function parseLimit(raw: string | undefined): number | undefined {
   if (!raw) {
     return undefined;
@@ -116,7 +182,10 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: ConfigBody }>(
     '/configs',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        body: configBodySchema
+      }
     },
     async (request, reply) => {
       try {
@@ -140,7 +209,11 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.put<{ Params: { configId: string }; Body: ConfigUpdateBody }>(
     '/configs/:configId',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        params: configIdParamsSchema,
+        body: configUpdateBodySchema
+      }
     },
     async (request, reply) => {
       try {
@@ -165,7 +238,10 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: EmitBody }>(
     '/emit',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        body: emitBodySchema
+      }
     },
     async (request, reply) => {
       try {

@@ -4,8 +4,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
   try {
     await request.jwtVerify();
   } catch {
-    reply.code(401).send({ message: 'Unauthorized' });
-    return;
+    return reply.code(401).send({ message: 'Unauthorized' });
   }
 }
 
@@ -14,16 +13,14 @@ export function requireRoles(allowedRoles: string[]) {
     try {
       await request.jwtVerify();
     } catch {
-      reply.code(401).send({ message: 'Unauthorized' });
-      return;
+      return reply.code(401).send({ message: 'Unauthorized' });
     }
 
     const roles = request.user.roles ?? [];
     const hasRequiredRole = allowedRoles.some((role) => roles.includes(role));
 
     if (!hasRequiredRole) {
-      reply.code(403).send({ message: 'Forbidden' });
-      return;
+      return reply.code(403).send({ message: 'Forbidden' });
     }
   };
 }

@@ -1,5 +1,8 @@
-import { BookingSource, BookingStatus, Prisma, WaitlistStatus } from '../../../prisma/generated';
+import { BookingSource, BookingStatus, NotificationScenario, Prisma, WaitlistStatus } from '../../../prisma/generated';
+import { encryptOptionalField } from '../../lib/crypto';
 import { prisma } from '../../lib/prisma';
+import { isAdminRole, isFrontDeskRole, isInstructorRole, isMemberRole } from '../auth/roles';
+import { createNotification } from '../notifications/notification.service';
 
 import { AuthError } from '../auth/auth.service';
 
@@ -127,11 +130,11 @@ function toDateOrThrow(value: string, name: string): Date {
 }
 
 function isMember(roles: string[]): boolean {
-  return roles.includes('MEMBER');
+  return isMemberRole(roles);
 }
 
 function isAdmin(roles: string[]): boolean {
-  return roles.includes('ADMIN');
+  return isAdminRole(roles);
 }
 
 function openingDateForUser(startAt: Date, roles: string[]): Date {
@@ -188,9 +191,59 @@ function parseOptionalNonNegativeAmount(value: number | undefined): number | und
   return Math.round(value * 100) / 100;
 }
 
-function ensureCanManageBooking(actorUserId: string, actorRoles: string[], bookingOwnerUserId: string): void {
-  const canManage = actorUserId === bookingOwnerUserId || isAdmin(actorRoles);
-  if (!canManage) {
+type BookingAccessClient = Pick<Prisma.TransactionClient, 'workflowRun'>;
+
+type BookingManagementInput = {
+  actorUserId: string;
+  actorRoles: string[];
+  bookingId: string;
+  bookingOwnerUserId: string;
+};
+
+export async function canManageBooking(
+  client: BookingAccessClient,
+  input: BookingManagementInput
+): Promise<boolean> {
+  if (input.actorUserId === input.bookingOwnerUserId) {
+    return true;
+  }
+
+  if (isAdminRole(input.actorRoles) || isFrontDeskRole(input.actorRoles)) {
+    return true;
+  }
+
+  if (isInstructorRole(input.actorRoles)) {
+    const assignment = await client.workflowRun.findFirst({
+      where: {
+        bookingId: input.bookingId,
+        operatorUserId: input.actorUserId
+      },
+      select: {
+        id: true
+      }
+    });
+
+    return Boolean(assignment);
+  }
+
+  return false;
+}
+
+async function ensureCanManageBooking(
+  client: BookingAccessClient,
+  actorUserId: string,
+  actorRoles: string[],
+  bookingId: string,
+  bookingOwnerUserId: string
+): Promise<void> {
+  const allowed = await canManageBooking(client, {
+    actorUserId,
+    actorRoles,
+    bookingId,
+    bookingOwnerUserId
+  });
+
+  if (!allowed) {
     throw new AuthError('Not allowed to manage this booking', 403);
   }
 }
@@ -405,6 +458,8 @@ async function createBookingInTx(
     notes?: string;
   }
 ) {
+  const notes = encryptOptionalField(input.notes);
+
   return tx.booking.create({
     data: {
       userId: input.userId,
@@ -418,8 +473,8 @@ async function createBookingInTx(
       status: BookingStatus.CONFIRMED,
       source: input.source,
       partySize: input.partySize,
-      notesCiphertext: input.notes ?? null,
-      notesIv: null
+      notesCiphertext: notes.ciphertext,
+      notesIv: notes.iv
     },
     select: {
       id: true,
@@ -691,6 +746,9 @@ export async function joinWaitlist(input: JoinWaitlistInput) {
       };
     }
 
+    const contact = encryptOptionalField(input.contact);
+    const notes = encryptOptionalField(input.notes);
+
     const entry = await tx.waitlist.create({
       data: {
         userId: input.userId,
@@ -700,10 +758,10 @@ export async function joinWaitlist(input: JoinWaitlistInput) {
         queueDate,
         queuePosition: 0,
         status: WaitlistStatus.WAITING,
-        contactCiphertext: input.contact ?? null,
-        contactIv: null,
-        notesCiphertext: input.notes ?? null,
-        notesIv: null
+        contactCiphertext: contact.ciphertext,
+        contactIv: contact.iv,
+        notesCiphertext: notes.ciphertext,
+        notesIv: notes.iv
       },
       select: {
         id: true,
@@ -784,7 +842,7 @@ export async function cancelBooking(input: CancelBookingInput) {
       throw new AuthError('Booking not found', 404);
     }
 
-    ensureCanManageBooking(input.actorUserId, input.actorRoles, booking.userId);
+    await ensureCanManageBooking(tx, input.actorUserId, input.actorRoles, booking.id, booking.userId);
 
     if (!isBookingActive(booking.status)) {
       throw new AuthError('Only active bookings can be canceled', 409);
@@ -844,7 +902,7 @@ export async function previewCancellation(input: CancellationPreviewInput) {
       throw new AuthError('Booking not found', 404);
     }
 
-    ensureCanManageBooking(input.actorUserId, input.actorRoles, booking.userId);
+    await ensureCanManageBooking(tx, input.actorUserId, input.actorRoles, booking.id, booking.userId);
 
     if (!isBookingActive(booking.status)) {
       throw new AuthError('Only active bookings can be canceled', 409);
@@ -894,7 +952,7 @@ export async function rescheduleBooking(input: RescheduleBookingInput) {
       throw new AuthError('Booking not found', 404);
     }
 
-    ensureCanManageBooking(input.actorUserId, input.actorRoles, booking.userId);
+    await ensureCanManageBooking(tx, input.actorUserId, input.actorRoles, booking.id, booking.userId);
 
     if (!isBookingActive(booking.status)) {
       throw new AuthError('Only active bookings can be rescheduled', 409);
@@ -1033,5 +1091,51 @@ export async function promoteNextWaitlisted(input: PromoteNextInput) {
       endAt,
       capacity: input.capacity
     });
+  });
+}
+
+export async function scheduleBookingReminder(input: {
+  bookingId: string;
+  actorUserId: string;
+  actorRoles: string[];
+  remindAt: string;
+}) {
+  const remindAt = toDateOrThrow(input.remindAt, 'remindAt');
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: input.bookingId },
+    select: {
+      id: true,
+      userId: true,
+      startAt: true,
+      endAt: true,
+      resourceKey: true
+    }
+  });
+
+  if (!booking) {
+    throw new AuthError('Booking not found', 404);
+  }
+
+  await ensureCanManageBooking(prisma, input.actorUserId, input.actorRoles, booking.id, booking.userId);
+
+  if (remindAt >= booking.startAt) {
+    throw new AuthError('remindAt must be before booking start time', 400);
+  }
+
+  return createNotification({
+    actorUserId: input.actorUserId,
+    actorRoles: input.actorRoles,
+    userId: booking.userId,
+    scenario: NotificationScenario.CLASS_REMINDER,
+    subject: 'Class reminder',
+    payload: {
+      bookingId: booking.id,
+      startAt: booking.startAt,
+      endAt: booking.endAt,
+      resourceKey: booking.resourceKey
+    },
+    scheduledFor: remindAt.toISOString(),
+    autoDeliver: false
   });
 }

@@ -1,4 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { createHash } from 'node:crypto';
+
+import { AuditAction } from '../../../prisma/generated';
+import { writeAuditLog } from '../audit/audit.service';
 
 import { AUTH_COOKIE_NAME, getAuthCookieOptions } from './auth.constants';
 import { requireAuth, requireRoles } from './auth.middleware';
@@ -17,8 +21,35 @@ type LoginBody = {
   password: string;
 };
 
+const registerBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['username', 'password', 'consentGranted'],
+  properties: {
+    username: { type: 'string', minLength: 3, maxLength: 50 },
+    password: { type: 'string', minLength: 12, maxLength: 200 },
+    displayName: { type: 'string', minLength: 1, maxLength: 120 },
+    email: { type: 'string', format: 'email', maxLength: 200 },
+    consentGranted: { type: 'boolean' }
+  }
+} as const;
+
+const loginBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['username', 'password'],
+  properties: {
+    username: { type: 'string', minLength: 3, maxLength: 50 },
+    password: { type: 'string', minLength: 1, maxLength: 200 }
+  }
+} as const;
+
 export const authRoutes: FastifyPluginAsync = async (app) => {
-  app.post<{ Body: RegisterBody }>('/register', async (request, reply) => {
+  app.post<{ Body: RegisterBody }>('/register', {
+    schema: {
+      body: registerBodySchema
+    }
+  }, async (request, reply) => {
     try {
       const user = await registerUser(request.body);
       const token = await reply.jwtSign(
@@ -33,6 +64,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       );
 
       reply.setCookie(AUTH_COOKIE_NAME, token, getAuthCookieOptions());
+      request.log.info({ module: 'auth', action: 'register', userId: user.id }, 'Registration succeeded');
       return reply.code(201).send({ user });
     } catch (error) {
       if (error instanceof AuthError) {
@@ -44,7 +76,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
-  app.post<{ Body: LoginBody }>('/login', async (request, reply) => {
+  app.post<{ Body: LoginBody }>('/login', {
+    schema: {
+      body: loginBodySchema
+    }
+  }, async (request, reply) => {
     try {
       const user = await loginUser(request.body);
       const token = await reply.jwtSign(
@@ -59,9 +95,45 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       );
 
       reply.setCookie(AUTH_COOKIE_NAME, token, getAuthCookieOptions());
+
+      await writeAuditLog({
+        actorUserId: user.id,
+        action: AuditAction.LOGIN,
+        entityType: 'auth_session',
+        entityId: user.id,
+        entityLabel: user.username,
+        requestId: request.id,
+        ip: request.ip,
+        userAgent: request.headers['user-agent'] as string | undefined,
+        afterJson: {
+          outcome: 'success'
+        }
+      });
+
+      request.log.info({ module: 'auth', action: 'login', userId: user.id }, 'Login succeeded');
+
       return reply.send({ user });
     } catch (error) {
       if (error instanceof AuthError) {
+        if (error.statusCode === 401 || error.statusCode === 423) {
+          const username = request.body?.username?.trim().toLowerCase() ?? '';
+
+          await writeAuditLog({
+            action: AuditAction.MANUAL,
+            entityType: 'auth_login',
+            entityLabel: username ? createHash('sha256').update(username).digest('hex') : null,
+            requestId: request.id,
+            ip: request.ip,
+            userAgent: request.headers['user-agent'] as string | undefined,
+            afterJson: {
+              outcome: error.statusCode === 423 ? 'locked' : 'failed',
+              statusCode: error.statusCode
+            }
+          });
+
+          request.log.warn({ module: 'auth', action: 'login', statusCode: error.statusCode }, 'Login denied');
+        }
+
         return reply.code(error.statusCode).send({ message: error.message });
       }
 

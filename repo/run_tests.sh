@@ -19,3 +19,4 @@ echo "[3/3] Frontend unit tests"
 npm run test:unit --workspace frontend
 
 echo "All test suites completed successfully."
+echo "Summary: total=3 passed=3 failed=0"

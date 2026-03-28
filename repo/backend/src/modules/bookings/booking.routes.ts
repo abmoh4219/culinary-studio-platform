@@ -3,9 +3,9 @@ import { NotificationScenario } from '../../../prisma/generated';
 
 import { requireAuth, requireRoles } from '../auth/auth.middleware';
 import { AuthError } from '../auth/auth.service';
+import { isAdminRole, isFrontDeskRole, isInstructorRole } from '../auth/roles';
 import { createNotification } from '../notifications/notification.service';
 import { publishWebhookEvent } from '../webhooks/webhook.service';
-import { prisma } from '../../lib/prisma';
 
 import {
   cancelBooking,
@@ -15,7 +15,8 @@ import {
   joinWaitlist,
   previewCancellation,
   promoteNextWaitlisted,
-  rescheduleBooking
+  rescheduleBooking,
+  scheduleBookingReminder
 } from './booking.service';
 
 type CreateBookingBody = {
@@ -82,11 +83,94 @@ type ReminderBody = {
   remindAt: string;
 };
 
+const isoDateTime = { type: 'string', format: 'date-time' } as const;
+
+const availabilityQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['sessionKey', 'startAt', 'endAt', 'capacity'],
+  properties: {
+    sessionKey: { type: 'string', minLength: 1, maxLength: 80 },
+    startAt: isoDateTime,
+    endAt: isoDateTime,
+    capacity: { type: 'string', pattern: '^[1-9]\\d*$' }
+  }
+} as const;
+
+const createBookingBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['sessionKey', 'seatKey', 'startAt', 'endAt', 'capacity'],
+  properties: {
+    sessionKey: { type: 'string', minLength: 1, maxLength: 80 },
+    seatKey: { type: 'string', minLength: 1, maxLength: 80 },
+    startAt: isoDateTime,
+    endAt: isoDateTime,
+    capacity: { type: 'integer', minimum: 1, maximum: 500 },
+    partySize: { type: 'integer', minimum: 1, maximum: 100 },
+    invoiceId: { type: 'string', minLength: 1, maxLength: 64 },
+    priceBookId: { type: 'string', minLength: 1, maxLength: 64 },
+    priceBookItemId: { type: 'string', minLength: 1, maxLength: 64 },
+    notes: { type: 'string', maxLength: 2000 }
+  }
+} as const;
+
+const joinWaitlistBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['sessionKey', 'startAt', 'endAt', 'capacity'],
+  properties: {
+    sessionKey: { type: 'string', minLength: 1, maxLength: 80 },
+    startAt: isoDateTime,
+    endAt: isoDateTime,
+    capacity: { type: 'integer', minimum: 1, maximum: 500 },
+    contact: { type: 'string', maxLength: 200 },
+    notes: { type: 'string', maxLength: 2000 }
+  }
+} as const;
+
+const waitlistQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['sessionKey', 'startAt', 'endAt'],
+  properties: {
+    sessionKey: { type: 'string', minLength: 1, maxLength: 80 },
+    startAt: isoDateTime,
+    endAt: isoDateTime
+  }
+} as const;
+
+const reminderSchema = {
+  params: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['bookingId'],
+    properties: {
+      bookingId: { type: 'string', minLength: 1, maxLength: 64 }
+    }
+  },
+  body: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['remindAt'],
+    properties: {
+      remindAt: isoDateTime
+    }
+  }
+} as const;
+
+function canViewFullWaitlist(roles: string[]): boolean {
+  return isAdminRole(roles) || isFrontDeskRole(roles) || isInstructorRole(roles);
+}
+
 export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: AvailabilityQuery }>(
     '/availability',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        querystring: availabilityQuerySchema
+      }
     },
     async (request, reply) => {
       try {
@@ -113,7 +197,10 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: CreateBookingBody }>(
     '/',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        body: createBookingBodySchema
+      }
     },
     async (request, reply) => {
       try {
@@ -167,7 +254,10 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: WaitlistJoinBody }>(
     '/waitlist',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        body: joinWaitlistBodySchema
+      }
     },
     async (request, reply) => {
       try {
@@ -192,12 +282,27 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: WaitlistQuery }>(
     '/waitlist',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        querystring: waitlistQuerySchema
+      }
     },
     async (request, reply) => {
       try {
         const result = await getWaitlist(request.query);
-        return reply.send(result);
+        const actorRoles = request.user.roles ?? [];
+
+        if (canViewFullWaitlist(actorRoles)) {
+          return reply.send(result);
+        }
+
+        return reply.send({
+          ...result,
+          entries: result.entries.map((entry) => ({
+            ...entry,
+            userId: entry.userId === request.user.sub ? entry.userId : null
+          }))
+        });
       } catch (error) {
         if (error instanceof AuthError) {
           return reply.code(error.statusCode).send({ message: error.message });
@@ -212,66 +317,41 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { bookingId: string }; Body: CancelBookingBody }>(
     '/:bookingId/cancel',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['bookingId'],
+          properties: {
+            bookingId: { type: 'string', minLength: 1, maxLength: 64 }
+          }
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['capacity'],
+          properties: {
+            capacity: { type: 'integer', minimum: 1, maximum: 500 },
+            baseAmount: { type: 'number', minimum: 0 }
+          }
+        }
+      }
     },
     async (request, reply) => {
       try {
-        const result = await cancelBooking({
+        const result = await previewCancellation({
           bookingId: request.params.bookingId,
           actorUserId: request.user.sub,
           actorRoles: request.user.roles ?? [],
-          capacity: request.body.capacity,
           baseAmount: request.body.baseAmount
         });
 
-        void createNotification({
-          actorUserId: request.user.sub,
-          actorRoles: request.user.roles ?? [],
-          userId: request.user.sub,
-          scenario: NotificationScenario.CANCELLATION,
-          subject: 'Booking canceled',
-          payload: {
-            bookingId: result.canceledBookingId,
-            feePreview: result.feePreview
-          },
-          autoDeliver: true,
-          enforceUserScope: false
-        }).catch((err) => request.log.warn({ err }, 'Failed to enqueue cancellation notification'));
-
-        void publishWebhookEvent({
-          eventKey: 'booking.cancellation',
-          payload: {
-            bookingId: result.canceledBookingId,
-            feePreview: result.feePreview
-          }
-        }).catch((err) => request.log.warn({ err }, 'Failed to enqueue cancellation webhook event'));
-
-        if (result.promotion?.promoted && result.promotion.booking?.userId) {
-          void createNotification({
-            actorUserId: request.user.sub,
-            actorRoles: request.user.roles ?? [],
-            userId: result.promotion.booking.userId,
-            scenario: NotificationScenario.WAITLIST_PROMOTION,
-            subject: 'You were promoted from waitlist',
-            payload: {
-              bookingId: result.promotion.booking.id,
-              waitlistEntryId: result.promotion.waitlistEntryId
-            },
-            autoDeliver: true,
-            enforceUserScope: false
-          }).catch((err) => request.log.warn({ err }, 'Failed to enqueue waitlist promotion notification'));
-
-          void publishWebhookEvent({
-            eventKey: 'waitlist.promotion',
-            payload: {
-              bookingId: result.promotion.booking.id,
-              userId: result.promotion.booking.userId,
-              waitlistEntryId: result.promotion.waitlistEntryId
-            }
-          }).catch((err) => request.log.warn({ err }, 'Failed to enqueue waitlist promotion webhook event'));
-        }
-
-        return reply.send(result);
+        return reply.send({
+          bookingId: result.bookingId,
+          feePreview: result.preview,
+          requiresConfirmation: true
+        });
       } catch (error) {
         if (error instanceof AuthError) {
           return reply.code(error.statusCode).send({ message: error.message });
@@ -314,7 +394,26 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { bookingId: string }; Body: CancelBookingBody }>(
     '/:bookingId/cancel-confirm',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['bookingId'],
+          properties: {
+            bookingId: { type: 'string', minLength: 1, maxLength: 64 }
+          }
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['capacity'],
+          properties: {
+            capacity: { type: 'integer', minimum: 1, maximum: 500 },
+            baseAmount: { type: 'number', minimum: 0 }
+          }
+        }
+      }
     },
     async (request, reply) => {
       try {
@@ -388,7 +487,29 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { bookingId: string }; Body: RescheduleBody }>(
     '/:bookingId/reschedule',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: {
+        params: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['bookingId'],
+          properties: {
+            bookingId: { type: 'string', minLength: 1, maxLength: 64 }
+          }
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['newSessionKey', 'newSeatKey', 'newStartAt', 'newEndAt', 'capacity'],
+          properties: {
+            newSessionKey: { type: 'string', minLength: 1, maxLength: 80 },
+            newSeatKey: { type: 'string', minLength: 1, maxLength: 80 },
+            newStartAt: { type: 'string', format: 'date-time' },
+            newEndAt: { type: 'string', format: 'date-time' },
+            capacity: { type: 'integer', minimum: 1, maximum: 500 }
+          }
+        }
+      }
     },
     async (request, reply) => {
       try {
@@ -517,52 +638,16 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { bookingId: string }; Body: ReminderBody }>(
     '/:bookingId/reminders',
     {
-      preHandler: requireAuth
+      preHandler: requireAuth,
+      schema: reminderSchema
     },
     async (request, reply) => {
       try {
-        const booking = await prisma.booking.findUnique({
-          where: {
-            id: request.params.bookingId
-          },
-          select: {
-            id: true,
-            userId: true,
-            startAt: true,
-            endAt: true,
-            resourceKey: true
-          }
-        });
-
-        if (!booking) {
-          return reply.code(404).send({ message: 'Booking not found' });
-        }
-
-        const remindAt = new Date(request.body.remindAt);
-        if (Number.isNaN(remindAt.getTime())) {
-          return reply.code(400).send({ message: 'remindAt must be a valid ISO datetime' });
-        }
-
-        if (remindAt >= booking.startAt) {
-          return reply
-            .code(400)
-            .send({ message: 'remindAt must be before booking start time' });
-        }
-
-        const result = await createNotification({
+        const result = await scheduleBookingReminder({
+          bookingId: request.params.bookingId,
           actorUserId: request.user.sub,
           actorRoles: request.user.roles ?? [],
-          userId: booking.userId,
-          scenario: NotificationScenario.CLASS_REMINDER,
-          subject: 'Class reminder',
-          payload: {
-            bookingId: booking.id,
-            startAt: booking.startAt,
-            endAt: booking.endAt,
-            resourceKey: booking.resourceKey
-          },
-          scheduledFor: remindAt.toISOString(),
-          autoDeliver: false
+          remindAt: request.body.remindAt
         });
 
         return reply.code(201).send(result);

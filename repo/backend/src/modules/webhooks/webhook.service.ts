@@ -10,6 +10,7 @@ import {
   WebhookFailureTriggerType,
   WebhookStatus
 } from '../../../prisma/generated';
+import { decryptOptionalField, encryptFieldValue, encryptOptionalField } from '../../lib/crypto';
 import { prisma } from '../../lib/prisma';
 import { AuthError } from '../auth/auth.service';
 
@@ -338,16 +339,19 @@ async function upsertFailureAlert(input: {
 export async function createWebhookConfig(input: CreateWebhookConfigInput) {
   ensureAdmin(input.actorRoles);
 
+  const endpoint = encryptFieldValue(validateEndpoint(input.endpoint));
+  const signingSecret = encryptFieldValue(normalizeSecret(input.signingSecret));
+
   const config = await prisma.webhookConfig.create({
     data: {
       name: normalizeName(input.name),
       eventKey: normalizeEventKey(input.eventKey),
       status: input.status ?? WebhookStatus.ACTIVE,
-      endpointCiphertext: validateEndpoint(input.endpoint),
+      endpointCiphertext: endpoint.ciphertext,
       endpointHash: endpointHash(input.endpoint),
-      endpointIv: null,
-      signingSecretCiphertext: normalizeSecret(input.signingSecret),
-      signingSecretIv: null,
+      endpointIv: endpoint.iv,
+      signingSecretCiphertext: signingSecret.ciphertext,
+      signingSecretIv: signingSecret.iv,
       timeoutSeconds: parsePositiveInt(input.timeoutSeconds, 10, 'timeoutSeconds'),
       maxRetries: parsePositiveInt(input.maxRetries, 5, 'maxRetries'),
       headersJson: input.headers
@@ -388,17 +392,23 @@ export async function updateWebhookConfig(input: UpdateWebhookConfigInput) {
       ...(input.eventKey !== undefined ? { eventKey: normalizeEventKey(input.eventKey) } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
       ...(input.endpoint !== undefined
-        ? {
-            endpointCiphertext: validateEndpoint(input.endpoint),
-            endpointHash: endpointHash(input.endpoint),
-            endpointIv: null
-          }
+        ? (() => {
+            const endpoint = encryptFieldValue(validateEndpoint(input.endpoint));
+            return {
+              endpointCiphertext: endpoint.ciphertext,
+              endpointHash: endpointHash(input.endpoint),
+              endpointIv: endpoint.iv
+            };
+          })()
         : {}),
       ...(input.signingSecret !== undefined
-        ? {
-            signingSecretCiphertext: normalizeSecret(input.signingSecret),
-            signingSecretIv: null
-          }
+        ? (() => {
+            const signingSecret = encryptFieldValue(normalizeSecret(input.signingSecret));
+            return {
+              signingSecretCiphertext: signingSecret.ciphertext,
+              signingSecretIv: signingSecret.iv
+            };
+          })()
         : {}),
       ...(input.timeoutSeconds !== undefined
         ? { timeoutSeconds: parsePositiveInt(input.timeoutSeconds, 10, 'timeoutSeconds') }
@@ -472,6 +482,7 @@ export async function publishWebhookEvent(input: PublishWebhookEventInput) {
     payload: input.payload
   };
   const requestBody = JSON.stringify(eventEnvelope);
+  const encryptedRequestBody = encryptOptionalField(requestBody);
 
   await prisma.$transaction(async (tx) => {
     for (const config of configs) {
@@ -481,8 +492,8 @@ export async function publishWebhookEvent(input: PublishWebhookEventInput) {
           eventKey,
           attemptNumber: 1,
           deliveryStatus: WebhookDeliveryStatus.PENDING,
-          requestBodyCiphertext: requestBody,
-          requestBodyIv: null,
+          requestBodyCiphertext: encryptedRequestBody.ciphertext,
+          requestBodyIv: encryptedRequestBody.iv,
           requestedAt: now
         }
       });
@@ -506,13 +517,16 @@ async function postWebhook(logId: string): Promise<void> {
       eventKey: true,
       attemptNumber: true,
       requestBodyCiphertext: true,
+      requestBodyIv: true,
       requestedAt: true,
       webhookConfig: {
         select: {
           id: true,
           status: true,
           endpointCiphertext: true,
+          endpointIv: true,
           signingSecretCiphertext: true,
+          signingSecretIv: true,
           timeoutSeconds: true,
           maxRetries: true,
           headersJson: true
@@ -547,9 +561,41 @@ async function postWebhook(logId: string): Promise<void> {
     return;
   }
 
-  const endpoint = log.webhookConfig.endpointCiphertext;
-  const secret = log.webhookConfig.signingSecretCiphertext || '';
-  const body = log.requestBodyCiphertext || '{}';
+  const endpoint = decryptOptionalField(
+    log.webhookConfig.endpointCiphertext,
+    log.webhookConfig.endpointIv,
+    { fieldName: 'webhook endpoint' }
+  );
+  const secret =
+    decryptOptionalField(log.webhookConfig.signingSecretCiphertext, log.webhookConfig.signingSecretIv, {
+      fieldName: 'webhook signing secret'
+    }) || '';
+  const body =
+    decryptOptionalField(log.requestBodyCiphertext, log.requestBodyIv, {
+      fieldName: 'webhook request body'
+    }) || '{}';
+
+  if (!endpoint) {
+    const now = new Date();
+    await prisma.webhookLog.update({
+      where: { id: log.id },
+      data: {
+        deliveryStatus: WebhookDeliveryStatus.DEAD_LETTER,
+        errorMessage: 'Missing webhook endpoint',
+        respondedAt: now
+      }
+    });
+
+    await upsertFailureAlert({
+      webhookConfigId: log.webhookConfigId,
+      webhookLogId: log.id,
+      eventKey: log.eventKey,
+      triggerType: WebhookFailureTriggerType.DEAD_LETTER,
+      errorMessage: 'Missing webhook endpoint',
+      occurredAt: now
+    });
+    return;
+  }
 
   if (!secret) {
     const now = new Date();
@@ -631,6 +677,8 @@ async function postWebhook(logId: string): Promise<void> {
     responseStatusCode >= 500;
 
   if (!transientFailure && responseStatusCode && responseStatusCode >= 200 && responseStatusCode < 300) {
+    const encryptedResponseBody = encryptOptionalField(responseBody);
+
     await prisma.webhookLog.update({
       where: {
         id: log.id
@@ -639,8 +687,8 @@ async function postWebhook(logId: string): Promise<void> {
         deliveryStatus: WebhookDeliveryStatus.SUCCESS,
         responseStatusCode,
         responseHeadersJson,
-        responseBodyCiphertext: responseBody,
-        responseBodyIv: null,
+        responseBodyCiphertext: encryptedResponseBody.ciphertext,
+        responseBodyIv: encryptedResponseBody.iv,
         respondedAt: now,
         errorMessage: null
       }
@@ -653,6 +701,8 @@ async function postWebhook(logId: string): Promise<void> {
   const permanentFailure = !transientFailure && responseStatusCode !== null && responseStatusCode >= 400;
 
   if (permanentFailure || reachedMax) {
+    const encryptedResponseBody = encryptOptionalField(responseBody);
+
     const failureMessage =
       errorMessage ||
       (permanentFailure
@@ -667,8 +717,8 @@ async function postWebhook(logId: string): Promise<void> {
         deliveryStatus: WebhookDeliveryStatus.DEAD_LETTER,
         responseStatusCode,
         responseHeadersJson,
-        responseBodyCiphertext: responseBody,
-        responseBodyIv: null,
+        responseBodyCiphertext: encryptedResponseBody.ciphertext,
+        responseBodyIv: encryptedResponseBody.iv,
         respondedAt: now,
         errorMessage: failureMessage
       }
@@ -688,6 +738,7 @@ async function postWebhook(logId: string): Promise<void> {
   const nextAttemptNumber = log.attemptNumber + 1;
   const delaySeconds = nextBackoffDelaySeconds(log.attemptNumber);
   const nextRequestedAt = new Date(now.getTime() + delaySeconds * 1000);
+  const encryptedResponseBody = encryptOptionalField(responseBody);
 
   await prisma.webhookLog.update({
     where: {
@@ -699,8 +750,8 @@ async function postWebhook(logId: string): Promise<void> {
       requestedAt: nextRequestedAt,
       responseStatusCode,
       responseHeadersJson,
-      responseBodyCiphertext: responseBody,
-      responseBodyIv: null,
+      responseBodyCiphertext: encryptedResponseBody.ciphertext,
+      responseBodyIv: encryptedResponseBody.iv,
       respondedAt: now,
       errorMessage: errorMessage || (responseStatusCode ? `Retryable HTTP ${responseStatusCode}` : 'Retryable failure')
     }

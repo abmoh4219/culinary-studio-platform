@@ -41,7 +41,8 @@ vi.mock('../backend/src/modules/bookings/booking.service', () => ({
   previewCancellation: vi.fn(),
   cancelBooking: vi.fn(),
   rescheduleBooking: vi.fn(),
-  promoteNextWaitlisted: vi.fn()
+  promoteNextWaitlisted: vi.fn(),
+  scheduleBookingReminder: vi.fn()
 }));
 
 vi.mock('../backend/src/modules/billing/billing.service', () => ({
@@ -185,6 +186,32 @@ describe('API tests', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().code).toBe('DEFAULT');
+  });
+
+  it('booking validation: invalid query returns 400 before service logic', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/bookings/availability?sessionKey=s&startAt=2026-03-01T00:00:00.000Z&endAt=2026-03-01T01:00:00.000Z&capacity=abc',
+      headers: {
+        cookie: authCookie(['MEMBER'])
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
+  });
+
+  it('billing validation: invalid currency query returns 400 before service logic', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/billing/price-books/effective?currency=USDX',
+      headers: {
+        cookie: authCookie(['MEMBER'])
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
   });
 
   it('workflow: active runs endpoint returns list', async () => {

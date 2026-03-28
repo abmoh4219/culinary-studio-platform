@@ -15,8 +15,10 @@ import {
   WalletStatus,
   WalletTransactionType
 } from '../../../prisma/generated';
+import { encryptOptionalField } from '../../lib/crypto';
 import { prisma } from '../../lib/prisma';
 import { AuthError } from '../auth/auth.service';
+import { isAdminRole } from '../auth/roles';
 
 type ResolvePriceBookInput = {
   asOf?: string;
@@ -96,7 +98,7 @@ function roundMoney(value: number): number {
 }
 
 function isAdmin(roles: string[]): boolean {
-  return roles.includes('ADMIN');
+  return isAdminRole(roles);
 }
 
 async function resolveEffectivePriceBook(asOf: Date, currency: string) {
@@ -692,14 +694,16 @@ export async function creditWallet(input: WalletAdjustInput) {
       }
     });
 
+    const memo = encryptOptionalField(input.reason);
+
     const transaction = await tx.walletTransaction.create({
       data: {
         walletId: updated.id,
         type: WalletTransactionType.CREDIT,
         amount,
         currency,
-        memoCiphertext: input.reason ?? null,
-        memoIv: null,
+        memoCiphertext: memo.ciphertext,
+        memoIv: memo.iv,
         referenceType: 'wallet_top_up'
       },
       select: {
@@ -763,14 +767,16 @@ export async function debitWallet(input: WalletAdjustInput) {
       }
     });
 
+    const memo = encryptOptionalField(input.reason);
+
     const transaction = await tx.walletTransaction.create({
       data: {
         walletId: updated.id,
         type: WalletTransactionType.DEBIT,
         amount,
         currency,
-        memoCiphertext: input.reason ?? null,
-        memoIv: null,
+        memoCiphertext: memo.ciphertext,
+        memoIv: memo.iv,
         referenceType: 'wallet_debit'
       },
       select: {
@@ -868,6 +874,10 @@ function validateDiscountPolicy(discountPercent: number, actorRoles: string[], r
     throw new AuthError('discountPercent cannot be negative', 400);
   }
 
+  if (discountPercent > 100) {
+    throw new AuthError('discountPercent cannot exceed 100', 400);
+  }
+
   if (discountPercent === 0) {
     return;
   }
@@ -878,6 +888,10 @@ function validateDiscountPolicy(discountPercent: number, actorRoles: string[], r
 
   if (discountPercent > 30 && !isAdmin(actorRoles)) {
     throw new AuthError('Discounts above 30% require administrator override', 403);
+  }
+
+  if (discountPercent > 30 && (!reason || reason.trim().length < 10)) {
+    throw new AuthError('Administrator override discounts above 30% require a detailed reason', 400);
   }
 }
 
@@ -1058,6 +1072,11 @@ export async function issueInvoice(input: IssueInvoiceInput) {
       invoiceNumber = generateInvoiceNumber();
     }
 
+    const invoiceNotes =
+      validated.discountPercent > 30
+        ? encryptOptionalField(`ADMIN_OVERRIDE_DISCOUNT:${validated.discountReason ?? ''}`)
+        : encryptOptionalField(null);
+
     const invoice = await tx.invoice.create({
       data: {
         invoiceNumber,
@@ -1075,11 +1094,8 @@ export async function issueInvoice(input: IssueInvoiceInput) {
         balanceDue: totalAmount,
         issuedAt: validated.asOf,
         dueAt: validated.dueAt,
-        notesCiphertext:
-          validated.discountPercent > 30
-            ? `ADMIN_OVERRIDE_DISCOUNT:${validated.discountReason ?? ''}`
-            : null,
-        notesIv: null
+        notesCiphertext: invoiceNotes.ciphertext,
+        notesIv: invoiceNotes.iv
       },
       select: {
         id: true,
@@ -1318,6 +1334,10 @@ export async function recordManualPayment(input: ManualPaymentInput) {
       throw new AuthError('Payment amount exceeds outstanding balance', 409);
     }
 
+    const cardBrand = encryptOptionalField(input.cardBrand);
+    const cardAuthCode = encryptOptionalField(input.cardAuthCode);
+    const notes = encryptOptionalField(input.notes);
+
     const payment = await tx.payment.create({
       data: {
         invoiceId: input.invoiceId,
@@ -1329,12 +1349,12 @@ export async function recordManualPayment(input: ManualPaymentInput) {
         referenceNumber: input.referenceNumber ?? null,
         checkNumberHash: input.checkNumber ? hashValue(input.checkNumber.trim()) : null,
         cardLast4Hash: input.cardLast4 ? hashValue(input.cardLast4.trim()) : null,
-        cardBrandCiphertext: input.cardBrand ?? null,
-        cardBrandIv: null,
-        cardAuthCodeCiphertext: input.cardAuthCode ?? null,
-        cardAuthCodeIv: null,
-        notesCiphertext: input.notes ?? null,
-        notesIv: null,
+        cardBrandCiphertext: cardBrand.ciphertext,
+        cardBrandIv: cardBrand.iv,
+        cardAuthCodeCiphertext: cardAuthCode.ciphertext,
+        cardAuthCodeIv: cardAuthCode.iv,
+        notesCiphertext: notes.ciphertext,
+        notesIv: notes.iv,
         receivedAt,
         settledAt: receivedAt
       },

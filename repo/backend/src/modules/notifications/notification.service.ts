@@ -4,6 +4,7 @@ import {
   NotificationStatus,
   Prisma
 } from '../../../prisma/generated';
+import { encryptOptionalField } from '../../lib/crypto';
 import { prisma } from '../../lib/prisma';
 import { AuthError } from '../auth/auth.service';
 
@@ -195,6 +196,8 @@ export async function createNotification(input: CreateNotificationInput) {
 
   const muted = await shouldMute(input.userId, input.scenario);
   const status = muted ? NotificationStatus.CANCELED : NotificationStatus.QUEUED;
+  const encryptedBody = encryptOptionalField(input.body);
+  const encryptedDestination = encryptOptionalField(input.destination);
 
   const created = await prisma.notification.create({
     data: {
@@ -204,10 +207,10 @@ export async function createNotification(input: CreateNotificationInput) {
       status,
       subject: input.subject ?? null,
       payloadJson: input.payload,
-      bodyCiphertext: input.body ?? null,
-      bodyIv: null,
-      destinationCiphertext: input.destination ?? null,
-      destinationIv: null,
+      bodyCiphertext: encryptedBody.ciphertext,
+      bodyIv: encryptedBody.iv,
+      destinationCiphertext: encryptedDestination.ciphertext,
+      destinationIv: encryptedDestination.iv,
       destinationHash: input.destination ? input.destination.toLowerCase() : null,
       scheduledFor,
       failureReason: muted ? 'Muted by user preference' : null
