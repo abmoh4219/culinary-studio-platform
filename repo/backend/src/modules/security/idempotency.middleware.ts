@@ -69,14 +69,14 @@ function requestFingerprint(request: FastifyRequest): { method: string; path: st
   };
 }
 
-function normalizePayload(payload: unknown): Prisma.JsonValue | null {
+function normalizePayload(payload: unknown): Prisma.InputJsonValue | null {
   if (payload === undefined || payload === null) {
     return null;
   }
 
   if (typeof payload === 'string') {
     try {
-      return JSON.parse(payload) as Prisma.JsonValue;
+      return JSON.parse(payload) as Prisma.InputJsonValue;
     } catch {
       return { raw: payload };
     }
@@ -86,7 +86,7 @@ function normalizePayload(payload: unknown): Prisma.JsonValue | null {
     return { rawBase64: payload.toString('base64') };
   }
 
-  return payload as Prisma.JsonValue;
+  return payload as Prisma.InputJsonValue;
 }
 
 async function readExistingRecord(request: FastifyRequest, key: string) {
@@ -171,7 +171,7 @@ export function createIdempotencyMiddleware(): {
           status: IdempotencyStatus.IN_PROGRESS,
           lockedAt: new Date(),
           responseStatus: null,
-          responseBody: null,
+          responseBody: Prisma.JsonNull,
           completedAt: null
         },
         select: { id: true }
@@ -240,7 +240,12 @@ export function createIdempotencyMiddleware(): {
 
     const normalized = normalizePayload(payload);
     const serialized = normalized === null ? null : stableJsonStringify(normalized);
-    const responseBody = serialized && serialized.length > 30_000 ? { truncated: true } : normalized;
+    const responseBody: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput =
+      normalized === null
+        ? Prisma.JsonNull
+        : serialized && serialized.length > 30_000
+          ? ({ truncated: true } as Prisma.InputJsonValue)
+          : normalized;
 
     await prisma.idempotencyKey.update({
       where: { id: context.recordId },

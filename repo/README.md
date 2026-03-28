@@ -40,9 +40,11 @@ This starts PostgreSQL, Redis, backend, and frontend; backend startup automatica
 Access services:
 
 - Frontend: `http://localhost:5173`
-- Backend: `http://localhost:4000`
-- PostgreSQL: `localhost:5432`
-- Redis: `localhost:6379`
+- Backend base API: `http://localhost:4000/api/v1`
+- OpenAPI docs (Swagger UI): `http://localhost:4000/api/docs`
+- PostgreSQL and Redis run on the internal Docker network (not published on host ports in QA mode).
+
+All backend endpoints in this repository are versioned under `/api/v1` for forward-compatible API evolution.
 
 ## QA Environment Wiring
 
@@ -50,7 +52,7 @@ QA uses only Docker Compose. Environment variables are wired through committed `
 
 ## QA Login
 
-- API base URL: `http://localhost:4000`
+- API base URL: `http://localhost:4000/api/v1`
 - Frontend URL: `http://localhost:5173`
 - Admin login (username/email): `qa.admin@culinary.local`
 - Admin password: `QaAdminPass123!`
@@ -106,6 +108,8 @@ npm run prisma:migrate:dev
 ```
 
 ## Auth Foundation
+
+All API route paths listed below are mounted under the versioned base prefix `/api/v1` (for example, `/auth/login` is served at `/api/v1/auth/login`).
 
 - Routes:
   - `POST /auth/register`

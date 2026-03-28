@@ -4,8 +4,6 @@ services:
     restart: unless-stopped
     env_file:
       - ./.env.qa
-    ports:
-      - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,8 +20,6 @@ services:
     env_file:
       - ./.env.qa
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

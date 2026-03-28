@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 
-import { NotificationChannel, NotificationScenario, NotificationStatus } from '../../../prisma/generated';
+import { NotificationChannel, NotificationScenario, NotificationStatus, Prisma } from '../../../prisma/generated';
 import { requireAuth } from '../auth/auth.middleware';
 import { AuthError } from '../auth/auth.service';
 
@@ -17,7 +17,7 @@ type CreateNotificationBody = {
   scenario: NotificationScenario;
   channel?: NotificationChannel;
   subject?: string;
-  payload?: Record<string, unknown>;
+  payload?: Prisma.InputJsonValue;
   body?: string;
   destination?: string;
   scheduledFor?: string;

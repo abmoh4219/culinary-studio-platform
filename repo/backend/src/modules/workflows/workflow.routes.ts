@@ -15,7 +15,7 @@ import {
   skipWorkflowStep,
   tickWorkflowRun
 } from './workflow-run.service';
-import { WorkflowRunEventType } from '../../../prisma/generated';
+import { Prisma, WorkflowRunEventType } from '../../../prisma/generated';
 import { materializeWorkflowFromRecipe, parseWorkflowVersionParam } from './workflow-timeline.service';
 
 type TimelineQuery = {
@@ -29,7 +29,7 @@ type MaterializeBody = {
 type CreateRunBody = {
   recipeId: string;
   bookingId?: string;
-  contextJson?: Record<string, unknown>;
+  contextJson?: Prisma.InputJsonValue;
 };
 
 type StepParams = {

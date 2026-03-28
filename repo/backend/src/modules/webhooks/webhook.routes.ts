@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 
-import { WebhookDeliveryStatus, WebhookFailureAlertStatus, WebhookStatus } from '../../../prisma/generated';
+import { Prisma, WebhookDeliveryStatus, WebhookFailureAlertStatus, WebhookStatus } from '../../../prisma/generated';
 import { requireAuth } from '../auth/auth.middleware';
 import { AuthError } from '../auth/auth.service';
 
@@ -34,7 +34,7 @@ type DispatchBody = {
 
 type EmitBody = {
   eventKey: string;
-  payload: Record<string, unknown>;
+  payload: Prisma.InputJsonValue;
 };
 
 type LogQuery = {
