@@ -162,7 +162,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.get(
     '/configs',
     {
-      preHandler: requireRoles(['ADMIN'])
+      preHandler: [requireAuth, requireRoles(['ADMIN'])]
     },
     async (request, reply) => {
       try {
@@ -182,7 +182,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: ConfigBody }>(
     '/configs',
     {
-      preHandler: requireRoles(['ADMIN']),
+      preHandler: [requireAuth, requireRoles(['ADMIN'])],
       schema: {
         body: configBodySchema
       }
@@ -209,7 +209,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.put<{ Params: { configId: string }; Body: ConfigUpdateBody }>(
     '/configs/:configId',
     {
-      preHandler: requireRoles(['ADMIN']),
+      preHandler: [requireAuth, requireRoles(['ADMIN'])],
       schema: {
         params: configIdParamsSchema,
         body: configUpdateBodySchema
@@ -238,7 +238,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: EmitBody }>(
     '/emit',
     {
-      preHandler: requireRoles(['ADMIN']),
+      preHandler: [requireAuth, requireRoles(['ADMIN'])],
       schema: {
         body: emitBodySchema
       }
@@ -265,7 +265,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: DispatchBody }>(
     '/dispatch-due',
     {
-      preHandler: requireRoles(['ADMIN'])
+      preHandler: [requireAuth, requireRoles(['ADMIN'])]
     },
     async (request, reply) => {
       try {
@@ -289,7 +289,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: LogQuery }>(
     '/logs',
     {
-      preHandler: requireRoles(['ADMIN'])
+      preHandler: [requireAuth, requireRoles(['ADMIN'])]
     },
     async (request, reply) => {
       try {
@@ -318,7 +318,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: FailureAlertQuery }>(
     '/failure-alerts',
     {
-      preHandler: requireRoles(['ADMIN'])
+      preHandler: [requireAuth, requireRoles(['ADMIN'])]
     },
     async (request, reply) => {
       try {
@@ -347,7 +347,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { alertId: string } }>(
     '/failure-alerts/:alertId/ack',
     {
-      preHandler: requireRoles(['ADMIN'])
+      preHandler: [requireAuth, requireRoles(['ADMIN'])]
     },
     async (request, reply) => {
       try {
