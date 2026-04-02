@@ -115,7 +115,7 @@ services:
       [
         "sh",
         "-lc",
-        "npm ci && ./run_tests.sh"
+        "npm ci --workspace backend --workspace frontend --include-workspace-root=false && ./run_tests.sh"
       ]
     networks:
       - app_net

@@ -10,7 +10,7 @@ export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-test_access_secret}"
 export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-test_refresh_secret}"
 
 echo "[setup] Generating Prisma client for container runtime"
-npm run prisma:generate --workspace backend
+npm exec --workspace backend prisma generate
 
 echo "[1/3] Backend unit tests"
 npm run test:unit --workspace backend
