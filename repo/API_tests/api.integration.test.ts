@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -6,8 +8,16 @@ const {
   getBookingAvailability,
   getEffectivePriceBook,
   getActiveWorkflowRuns,
+  pauseWorkflowRun,
+  resumeWorkflowRun,
+  tickWorkflowRun,
+  completeWorkflowStep,
+  skipWorkflowStep,
+  rollbackWorkflowStep,
+  getWorkflowRunEvents,
   getNotificationHistory,
   getRecipeViewVolume,
+  exportAnalyticsCsv,
   publishWebhookEvent,
   queryWebhookLogs,
   queryWebhookFailureAlerts,
@@ -18,8 +28,16 @@ const {
   getBookingAvailability: vi.fn(),
   getEffectivePriceBook: vi.fn(),
   getActiveWorkflowRuns: vi.fn(),
+  pauseWorkflowRun: vi.fn(),
+  resumeWorkflowRun: vi.fn(),
+  tickWorkflowRun: vi.fn(),
+  completeWorkflowStep: vi.fn(),
+  skipWorkflowStep: vi.fn(),
+  rollbackWorkflowStep: vi.fn(),
+  getWorkflowRunEvents: vi.fn(),
   getNotificationHistory: vi.fn(),
   getRecipeViewVolume: vi.fn(),
+  exportAnalyticsCsv: vi.fn(),
   publishWebhookEvent: vi.fn(),
   queryWebhookLogs: vi.fn(),
   queryWebhookFailureAlerts: vi.fn(),
@@ -76,15 +94,15 @@ vi.mock('../backend/src/modules/billing/billing.service', () => ({
 
 vi.mock('../backend/src/modules/workflows/workflow-run.service', () => ({
   createWorkflowRun: vi.fn(),
-  pauseWorkflowRun: vi.fn(),
-  resumeWorkflowRun: vi.fn(),
-  tickWorkflowRun: vi.fn(),
-  completeWorkflowStep: vi.fn(),
-  skipWorkflowStep: vi.fn(),
-  rollbackWorkflowStep: vi.fn(),
+  pauseWorkflowRun,
+  resumeWorkflowRun,
+  tickWorkflowRun,
+  completeWorkflowStep,
+  skipWorkflowStep,
+  rollbackWorkflowStep,
   getWorkflowRunState: vi.fn(),
   getActiveWorkflowRuns,
-  getWorkflowRunEvents: vi.fn()
+  getWorkflowRunEvents
 }));
 
 vi.mock('../backend/src/modules/workflows/workflow-timeline.service', () => ({
@@ -121,7 +139,7 @@ vi.mock('../backend/src/modules/webhooks/webhook.service', () => ({
 }));
 
 vi.mock('../backend/src/modules/analytics/analytics-export.service', () => ({
-  exportAnalyticsCsv: vi.fn()
+  exportAnalyticsCsv
 }));
 
 import { AUTH_COOKIE_NAME } from '../backend/src/modules/auth/auth.constants';
@@ -331,6 +349,85 @@ describe('API tests', () => {
 
     expect(allowed.statusCode).toBe(200);
     expect(allowed.json().totals.views).toBe(10);
+  });
+
+  it('analytics export enforces admin auth and returns csv payload', async () => {
+    const forbidden = await app.inject({
+      method: 'GET',
+      url: '/api/v1/analytics/exports/recipe_view_volume.csv',
+      headers: {
+        cookie: authCookie(['MEMBER'])
+      }
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    exportAnalyticsCsv.mockResolvedValue({
+      fileName: 'analytics-recipe_view_volume.csv',
+      contentType: 'text/csv; charset=utf-8',
+      rowCount: 1,
+      stream: Readable.from(['recipe_id,views\nrecipe-1,10\n'])
+    });
+
+    const allowed = await app.inject({
+      method: 'GET',
+      url: '/api/v1/analytics/exports/recipe_view_volume.csv',
+      headers: {
+        cookie: authCookie(['ADMIN'])
+      }
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.headers['content-type']).toContain('text/csv');
+    expect(allowed.headers['content-disposition']).toContain('analytics-recipe_view_volume.csv');
+    expect(allowed.body).toContain('recipe_id,views');
+  });
+
+  it('workflow control endpoints enforce auth boundaries', async () => {
+    pauseWorkflowRun.mockRejectedValueOnce(new AuthError('Not allowed to operate this workflow run', 403));
+    const memberPause = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workflows/runs/run-1/pause',
+      headers: {
+        cookie: authCookie(['MEMBER'])
+      }
+    });
+    expect(memberPause.statusCode).toBe(403);
+
+    pauseWorkflowRun.mockResolvedValueOnce({ run: { id: 'run-1', status: 'PAUSED' } });
+    const adminPause = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workflows/runs/run-1/pause',
+      headers: {
+        cookie: authCookie(['ADMIN'])
+      }
+    });
+    expect(adminPause.statusCode).toBe(200);
+
+    const anonymousTick = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workflows/runs/run-1/tick'
+    });
+    expect(anonymousTick.statusCode).toBe(401);
+
+    getWorkflowRunEvents.mockRejectedValueOnce(new AuthError('Forbidden', 403));
+    const memberEvents = await app.inject({
+      method: 'GET',
+      url: '/api/v1/workflows/events?runId=run-1',
+      headers: {
+        cookie: authCookie(['MEMBER'])
+      }
+    });
+    expect(memberEvents.statusCode).toBe(403);
+
+    getWorkflowRunEvents.mockResolvedValueOnce({ events: [] });
+    const adminEvents = await app.inject({
+      method: 'GET',
+      url: '/api/v1/workflows/events?runId=run-1',
+      headers: {
+        cookie: authCookie(['ADMIN'])
+      }
+    });
+    expect(adminEvents.statusCode).toBe(200);
   });
 
   it('authorization negative: admin-only billing wallet top-up rejects non-admin', async () => {

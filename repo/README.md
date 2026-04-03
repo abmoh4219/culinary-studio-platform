@@ -1,8 +1,14 @@
 # Culinary Studio Operations & Recipe Coach Platform
 
-## Run Everything
+## Run Everything (TLS Default)
 
-Start the full Docker Compose flow, including Postgres, Redis, backend, frontend, and the full test suite with logs:
+Start the secure default stack (Caddy TLS proxy + backend + frontend + infra):
+
+```bash
+docker compose --profile tls up --build
+```
+
+For local HTTP-only development without TLS termination, use:
 
 ```bash
 docker compose up --build

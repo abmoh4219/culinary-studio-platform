@@ -146,10 +146,15 @@ export async function registerUser(input: RegisterInput) {
   }
 
   const passwordHash = await hashPassword(input.password);
-  const defaultRole = await prisma.role.findUnique({
-    where: { code: 'USER' },
-    select: { id: true }
-  });
+  const defaultRole =
+    (await prisma.role.findUnique({
+      where: { code: 'MEMBER' },
+      select: { id: true }
+    })) ||
+    (await prisma.role.findUnique({
+      where: { code: 'USER' },
+      select: { id: true }
+    }));
 
   const user = await prisma.user.create({
     data: {

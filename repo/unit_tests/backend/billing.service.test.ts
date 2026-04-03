@@ -34,4 +34,24 @@ describe('billing.service issueInvoice validation', () => {
       statusCode: 403
     });
   });
+
+  it('rejects admin override discounts above 30% without detailed reason', async () => {
+    await expect(
+      issueInvoice({
+        actorUserId: 'admin-1',
+        actorRoles: ['ADMIN'],
+        discountPercent: 31,
+        discountReason: 'short',
+        lines: [
+          {
+            type: 'MEMBERSHIP_PLAN',
+            membershipPlanId: 'plan-1',
+            quantity: 1
+          }
+        ]
+      } as any)
+    ).rejects.toMatchObject({
+      statusCode: 400
+    });
+  });
 });

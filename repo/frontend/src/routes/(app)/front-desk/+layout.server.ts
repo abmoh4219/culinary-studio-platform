@@ -13,8 +13,7 @@ export const load: LayoutServerLoad = async (event) => {
 
   const allowed =
     session.user.roles.includes('FRONT_DESK') ||
-    session.user.roles.includes('ADMIN') ||
-    session.user.roles.includes('STAFF');
+    session.user.roles.includes('ADMIN');
 
   if (!allowed) {
     throw redirect(302, '/forbidden');

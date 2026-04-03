@@ -97,6 +97,10 @@ function getEncryptionKey(): Buffer {
 }
 
 function fallbackEnabled(options: CipherOptions): boolean {
+  if (isProduction()) {
+    return false;
+  }
+
   if (options.allowPlaintextFallback === true) {
     return true;
   }

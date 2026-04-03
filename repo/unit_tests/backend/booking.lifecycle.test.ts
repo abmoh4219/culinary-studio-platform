@@ -51,11 +51,17 @@ vi.mock('../../backend/src/lib/prisma', () => ({
 }));
 
 import { AuthError } from '../../backend/src/modules/auth/auth.service';
-import { cancelBooking, createBooking } from '../../backend/src/modules/bookings/booking.service';
+import {
+  cancelBooking,
+  createBooking,
+  previewCancellation,
+  rescheduleBooking
+} from '../../backend/src/modules/bookings/booking.service';
 
 describe('booking lifecycle critical behaviors', () => {
   beforeEach(() => {
     Object.values(mocks).forEach((fn) => fn.mockReset());
+    vi.restoreAllMocks();
     process.env.FIELD_ENCRYPTION_KEY = process.env.FIELD_ENCRYPTION_KEY || 'test_field_encryption_key_32b!!!';
   });
 
@@ -73,7 +79,7 @@ describe('booking lifecycle critical behaviors', () => {
         endAt: new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString(),
         capacity: 10
       })
-    ).rejects.toMatchObject<AuthError>({
+    ).rejects.toMatchObject({
       statusCode: 409,
       message: 'Selected seat/resource is already booked for an overlapping time'
     });
@@ -131,5 +137,103 @@ describe('booking lifecycle critical behaviors', () => {
         data: expect.objectContaining({ status: 'CONVERTED', bookingId: 'booking-promoted' })
       })
     );
+  });
+
+  it('applies cancellation policy boundaries at exactly 24h and exactly 2h', async () => {
+    const baseNow = new Date('2026-05-01T10:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(baseNow);
+
+    mocks.bookingFindUnique
+      .mockResolvedValueOnce({
+        id: 'booking-24h',
+        userId: 'member-1',
+        startAt: new Date(baseNow.getTime() + 24 * 60 * 60 * 1000),
+        status: 'CONFIRMED',
+        priceBookItemId: null
+      })
+      .mockResolvedValueOnce({
+        id: 'booking-2h',
+        userId: 'member-1',
+        startAt: new Date(baseNow.getTime() + 2 * 60 * 60 * 1000),
+        status: 'CONFIRMED',
+        priceBookItemId: null
+      });
+
+    const at24h = await previewCancellation({
+      bookingId: 'booking-24h',
+      actorUserId: 'member-1',
+      actorRoles: ['MEMBER'],
+      baseAmount: 100
+    });
+
+    const at2h = await previewCancellation({
+      bookingId: 'booking-2h',
+      actorUserId: 'member-1',
+      actorRoles: ['MEMBER'],
+      baseAmount: 100
+    });
+
+    expect(at24h.preview.policyBand).toBe('HALF');
+    expect(at24h.preview.feePercent).toBe(50);
+    expect(at2h.preview.policyBand).toBe('HALF');
+    expect(at2h.preview.feePercent).toBe(50);
+
+    vi.useRealTimers();
+  });
+
+  it('allows reschedule at exactly 2 hours before original start time', async () => {
+    const baseNow = new Date('2026-06-01T10:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(baseNow);
+
+    const oldStart = new Date(baseNow.getTime() + 2 * 60 * 60 * 1000);
+    const oldEnd = new Date(oldStart.getTime() + 60 * 60 * 1000);
+    const newStart = new Date(baseNow.getTime() + 30 * 60 * 60 * 1000);
+    const newEnd = new Date(newStart.getTime() + 60 * 60 * 1000);
+
+    mocks.executeRaw.mockResolvedValue(undefined);
+    mocks.bookingFindUnique.mockResolvedValue({
+      id: 'booking-1',
+      userId: 'member-1',
+      status: 'CONFIRMED',
+      resourceKey: 'group.class.demo::station-1',
+      startAt: oldStart,
+      endAt: oldEnd,
+      partySize: 1,
+      invoiceId: null,
+      priceBookId: null,
+      priceBookItemId: null
+    });
+    mocks.userRoleFindMany.mockResolvedValue([{ role: { code: 'MEMBER' } }]);
+    mocks.bookingFindFirst.mockResolvedValue(null);
+    mocks.bookingCount.mockResolvedValue(0);
+    mocks.bookingUpdate.mockResolvedValue({
+      id: 'booking-1',
+      userId: 'member-1',
+      resourceKey: 'group.class.alt::station-2',
+      startAt: newStart,
+      endAt: newEnd,
+      status: 'CONFIRMED',
+      partySize: 1,
+      updatedAt: new Date(baseNow)
+    });
+    mocks.waitlistFindFirst.mockResolvedValue(null);
+
+    const result = await rescheduleBooking({
+      bookingId: 'booking-1',
+      actorUserId: 'member-1',
+      actorRoles: ['MEMBER'],
+      newSessionKey: 'group.class.alt',
+      newSeatKey: 'station-2',
+      newStartAt: newStart.toISOString(),
+      newEndAt: newEnd.toISOString(),
+      capacity: 10
+    });
+
+    expect(result.booking.id).toBe('booking-1');
+    expect(mocks.bookingUpdate).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
   });
 });

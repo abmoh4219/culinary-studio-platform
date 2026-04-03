@@ -24,5 +24,5 @@ export function isInstructorRole(roles: string[]): boolean {
 }
 
 export function isMemberRole(roles: string[]): boolean {
-  return hasRole(roles, ROLE.MEMBER);
+  return hasRole(roles, ROLE.MEMBER) || roles.includes('USER');
 }
