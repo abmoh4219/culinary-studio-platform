@@ -4,7 +4,9 @@ import path from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-describe('real backend integration (postgres + prisma migrations)', () => {
+const realDescribe = process.env.RUN_REAL_INTEGRATION === 'true' ? describe : describe.skip;
+
+realDescribe('real backend integration (postgres + prisma migrations)', () => {
   const repoRoot = path.resolve(__dirname, '..');
   const backendRoot = path.join(repoRoot, 'backend');
 
@@ -65,14 +67,16 @@ describe('real backend integration (postgres + prisma migrations)', () => {
     payload: unknown;
     nonce: string;
     idempotencyKey: string;
+    userId?: string;
   }) {
     const timestamp = String(Math.floor(Date.now() / 1000));
+    const userId = input.userId ?? '';
     const canonical = [
       input.method,
       input.path,
       timestamp,
       input.nonce,
-      '',
+      userId,
       bodyHashFn(input.payload)
     ].join('\n');
 
@@ -345,7 +349,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: createPath,
           payload: createPayload,
           nonce: `golden-create-${Date.now()}`,
-          idempotencyKey: `golden-create-idem-${Date.now()}`
+          idempotencyKey: `golden-create-idem-${Date.now()}`,
+          userId: memberA.userId
         })
       },
       payload: createPayload
@@ -371,7 +376,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: waitlistPath,
           payload: waitlistPayload,
           nonce: `golden-wait-${Date.now()}`,
-          idempotencyKey: `golden-wait-idem-${Date.now()}`
+          idempotencyKey: `golden-wait-idem-${Date.now()}`,
+          userId: memberB.userId
         })
       },
       payload: waitlistPayload
@@ -390,7 +396,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: cancelPath,
           payload: cancelPayload,
           nonce: `golden-cancel-${Date.now()}`,
-          idempotencyKey: `golden-cancel-idem-${Date.now()}`
+          idempotencyKey: `golden-cancel-idem-${Date.now()}`,
+          userId: memberA.userId
         })
       },
       payload: cancelPayload
@@ -454,7 +461,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: pathName,
           payload: firstPayload,
           nonce: `conflict-a-${Date.now()}`,
-          idempotencyKey: `conflict-a-idem-${Date.now()}`
+          idempotencyKey: `conflict-a-idem-${Date.now()}`,
+          userId: memberA.userId
         })
       },
       payload: firstPayload
@@ -474,7 +482,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: pathName,
           payload: secondPayload,
           nonce: `conflict-b-${Date.now()}`,
-          idempotencyKey: `conflict-b-idem-${Date.now()}`
+          idempotencyKey: `conflict-b-idem-${Date.now()}`,
+          userId: memberB.userId
         })
       },
       payload: secondPayload
@@ -509,7 +518,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: createPath,
           payload: createPayload,
           nonce: `authz-create-${Date.now()}`,
-          idempotencyKey: `authz-create-idem-${Date.now()}`
+          idempotencyKey: `authz-create-idem-${Date.now()}`,
+          userId: memberA.userId
         })
       },
       payload: createPayload
@@ -534,7 +544,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: `/api/v1/bookings/${bookingId}/cancel-confirm`,
           payload: { capacity: 10 },
           nonce: `authz-cancel-${Date.now()}`,
-          idempotencyKey: `authz-cancel-idem-${Date.now()}`
+          idempotencyKey: `authz-cancel-idem-${Date.now()}`,
+          userId: memberB.userId
         })
       },
       payload: { capacity: 10 }
@@ -559,7 +570,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: `/api/v1/bookings/${bookingId}/reschedule`,
           payload: reschedulePayload,
           nonce: `authz-res-${Date.now()}`,
-          idempotencyKey: `authz-res-idem-${Date.now()}`
+          idempotencyKey: `authz-res-idem-${Date.now()}`,
+          userId: memberB.userId
         })
       },
       payload: reschedulePayload
@@ -593,7 +605,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
             partySize: 1
           },
           nonce: `staff-create-${Date.now()}`,
-          idempotencyKey: `staff-create-idem-${Date.now()}`
+          idempotencyKey: `staff-create-idem-${Date.now()}`,
+          userId: memberA.userId
         })
       },
       payload: {
@@ -652,7 +665,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: '/api/v1/bookings',
           payload: createBookingPayload,
           nonce: `workflow-booking-${Date.now()}`,
-          idempotencyKey: `workflow-booking-idem-${Date.now()}`
+          idempotencyKey: `workflow-booking-idem-${Date.now()}`,
+          userId: memberA.userId
         })
       },
       payload: createBookingPayload
@@ -733,7 +747,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: pathName,
           payload,
           nonce: `invoice-${Date.now()}`,
-          idempotencyKey: `invoice-idem-${Date.now()}`
+          idempotencyKey: `invoice-idem-${Date.now()}`,
+          userId: admin.userId
         })
       },
       payload
@@ -749,13 +764,22 @@ describe('real backend integration (postgres + prisma migrations)', () => {
         priceBookCodeSnapshot: true,
         priceBookVersionSnapshot: true,
         totalAmountSnapshot: true,
-        discountAmountSnapshot: true
+        discountAmountSnapshot: true,
+        discountOverrides: {
+          select: {
+            reason: true,
+            approvedByUserId: true,
+            createdByUserId: true
+          }
+        }
       }
     });
     expect(invoiceRow?.priceBookCodeSnapshot, 'Price book code snapshot should persist').toBeTruthy();
     expect(invoiceRow?.priceBookVersionSnapshot, 'Price book version snapshot should persist').toBeTruthy();
     expect(Number(invoiceRow?.totalAmountSnapshot ?? 0), 'Invoice total should be persisted').toBeGreaterThan(0);
     expect(Number(invoiceRow?.discountAmountSnapshot ?? 0), 'Discount snapshot should be persisted').toBeGreaterThan(0);
+    expect(invoiceRow?.discountOverrides[0]?.reason, 'Discount override reason should persist').toContain('Promo test');
+    expect(invoiceRow?.discountOverrides[0]?.createdByUserId, 'Discount override creator should persist').toBe(admin.userId);
   }, 120000);
 
   it('prevents duplicate idempotent processing on signed mutation', async () => {
@@ -780,7 +804,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: pathName,
           payload,
           nonce: `idem-nonce-1-${Date.now()}`,
-          idempotencyKey
+          idempotencyKey,
+          userId: admin.userId
         })
       },
       payload
@@ -796,7 +821,8 @@ describe('real backend integration (postgres + prisma migrations)', () => {
           path: pathName,
           payload,
           nonce: `idem-nonce-2-${Date.now()}`,
-          idempotencyKey
+          idempotencyKey,
+          userId: admin.userId
         })
       },
       payload
@@ -877,6 +903,7 @@ describe('real backend integration (postgres + prisma migrations)', () => {
       select: {
         bodyCiphertext: true,
         bodyIv: true,
+        destinationHash: true,
         destinationCiphertext: true,
         destinationIv: true
       }
@@ -886,6 +913,9 @@ describe('real backend integration (postgres + prisma migrations)', () => {
     expect(row?.destinationCiphertext, 'Notification destination ciphertext should be stored').toBeTruthy();
     expect(row?.bodyCiphertext === plainBody, 'Plain body must not be stored as raw ciphertext').toBe(false);
     expect(row?.destinationCiphertext === plainDestination, 'Plain destination must not be stored raw').toBe(false);
+    expect(row?.destinationHash, 'Notification destination hash should be persisted').toBeTruthy();
+    expect(row?.destinationHash, 'Destination hash should be SHA-256 hex').toMatch(/^[a-f0-9]{64}$/);
+    expect(row?.destinationHash === plainDestination, 'Destination hash must not store plain value').toBe(false);
     expect(row?.bodyIv, 'Notification body IV should be persisted').toBeTruthy();
     expect(row?.destinationIv, 'Notification destination IV should be persisted').toBeTruthy();
 
@@ -899,5 +929,6 @@ describe('real backend integration (postgres + prisma migrations)', () => {
     const notification = history.json().notifications[0];
     expect(notification.bodyCiphertext, 'Encrypted internal fields must not be exposed by API').toBeUndefined();
     expect(notification.destinationCiphertext, 'Encrypted internal fields must not be exposed by API').toBeUndefined();
+    expect(notification.destinationHash, 'Hash fields should not be exposed by API').toBeUndefined();
   }, 120000);
 });

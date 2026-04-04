@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { getConfig } from './config';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_BYTE_LENGTH = 12;
@@ -29,7 +30,7 @@ export class FieldEncryptionError extends Error {
 }
 
 function isProduction(): boolean {
-  return process.env.NODE_ENV === 'production';
+  return getConfig().NODE_ENV === 'production';
 }
 
 function parseBase64Key(raw: string): Buffer | null {
@@ -79,8 +80,8 @@ function getEncryptionKey(): Buffer {
     return cachedKey;
   }
 
-  const raw = process.env.FIELD_ENCRYPTION_KEY;
-  if (!raw) {
+  const configured = getConfig().FIELD_ENCRYPTION_KEY;
+  if (!configured) {
     if (isProduction()) {
       throw new FieldEncryptionConfigError(
         'FIELD_ENCRYPTION_KEY is required in production for at-rest encryption/decryption.'
@@ -92,7 +93,7 @@ function getEncryptionKey(): Buffer {
     );
   }
 
-  cachedKey = parseEncryptionKeyMaterial(raw);
+  cachedKey = parseEncryptionKeyMaterial(configured);
   return cachedKey;
 }
 
@@ -105,7 +106,7 @@ function fallbackEnabled(options: CipherOptions): boolean {
     return true;
   }
 
-  return process.env.FIELD_ENCRYPTION_ALLOW_PLAINTEXT_FALLBACK === 'true';
+  return getConfig().FIELD_ENCRYPTION_ALLOW_PLAINTEXT_FALLBACK;
 }
 
 function fieldLabel(options: CipherOptions): string {

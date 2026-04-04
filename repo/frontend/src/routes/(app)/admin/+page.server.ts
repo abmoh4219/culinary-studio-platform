@@ -85,6 +85,17 @@ type NotificationPreference = {
   } | null;
 };
 
+type ConsentRecord = {
+  user: {
+    id: string;
+    username: string;
+    displayName: string;
+    consentGranted: boolean;
+    consentGrantedAt: string | null;
+    status: string;
+  };
+};
+
 function q(url: URL, key: string): string {
   return url.searchParams.get(key)?.trim() ?? '';
 }
@@ -130,6 +141,7 @@ export const load = async (event: RequestEvent) => {
   const alertsLimit = q(event.url, 'alertsLimit') || '50';
 
   const privacyUserId = q(event.url, 'privacyUserId');
+  const consentUserId = q(event.url, 'consentUserId');
 
   const errors: string[] = [];
 
@@ -220,6 +232,13 @@ export const load = async (event: RequestEvent) => {
       })
     : null;
 
+  const consentRecord = consentUserId
+    ? await fetchApiJson<ConsentRecord>(event, `/auth/admin/users/${encodeURIComponent(consentUserId)}/consent`).catch((error) => {
+        errors.push(`Consent record: ${(error as Error).message}`);
+        return null;
+      })
+    : null;
+
   return {
     filters: {
       asOf,
@@ -237,7 +256,8 @@ export const load = async (event: RequestEvent) => {
       webhookLimit,
       alertsStatus,
       alertsLimit,
-      privacyUserId
+      privacyUserId,
+      consentUserId
     },
     effectivePriceBook,
     membershipPrice,
@@ -247,6 +267,7 @@ export const load = async (event: RequestEvent) => {
     webhookAlerts,
     securityHealth,
     privacyPreference,
+    consentRecord,
     errors
   };
 };
@@ -370,9 +391,34 @@ async function updatePrivacyControls(event: RequestEvent) {
   }
 }
 
+async function updateConsentControls(event: RequestEvent) {
+  const formData = await event.request.formData();
+  const userId = t(formData, 'userId');
+  const consentGranted = t(formData, 'consentGranted') === 'true';
+
+  if (!userId) {
+    return failAction('updateConsentControls', 'User ID is required.', { userId: 'Required' });
+  }
+
+  try {
+    const result = await putApiJson(event, `/auth/admin/users/${encodeURIComponent(userId)}/consent`, {
+      consentGranted
+    });
+
+    return {
+      action: 'updateConsentControls',
+      success: true,
+      consent: result
+    };
+  } catch (error) {
+    return failAction('updateConsentControls', (error as Error).message);
+  }
+}
+
 export const actions = {
   issueDiscountInvoice,
   acknowledgeWebhookAlert: acknowledgeWebhookAlertAction,
   dispatchWebhooksNow,
-  updatePrivacyControls
+  updatePrivacyControls,
+  updateConsentControls
 };

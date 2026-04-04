@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
+import { getConfig } from '../../lib/config';
 
 import { AUTH_COOKIE_NAME } from '../auth/auth.constants';
 
@@ -8,19 +9,6 @@ type Bucket = {
 };
 
 const buckets = new Map<string, Bucket>();
-
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-
-  return Math.floor(parsed);
-}
 
 async function resolveRateLimitKey(app: FastifyInstance, request: FastifyRequest): Promise<string> {
   const token = request.cookies[AUTH_COOKIE_NAME];
@@ -40,7 +28,7 @@ async function resolveRateLimitKey(app: FastifyInstance, request: FastifyRequest
 }
 
 export function createUserRateLimitMiddleware(app: FastifyInstance): preHandlerHookHandler {
-  const maxRequestsPerMinute = parsePositiveInt(process.env.RATE_LIMIT_MAX_REQUESTS_PER_MINUTE, 60);
+  const maxRequestsPerMinute = getConfig().RATE_LIMIT_MAX_REQUESTS_PER_MINUTE;
   const windowMs = 60_000;
 
   return async function userRateLimit(request: FastifyRequest, reply: FastifyReply): Promise<void> {

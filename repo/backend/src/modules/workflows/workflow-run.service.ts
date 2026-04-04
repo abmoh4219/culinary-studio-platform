@@ -1,5 +1,6 @@
 import {
   Prisma,
+  RecipeStatus,
   WorkflowRunEventType,
   WorkflowRunStatus,
   WorkflowRunStepStatus
@@ -1035,6 +1036,24 @@ export async function getActiveWorkflowRuns(actorUserId: string, actorRoles: str
       completedAt: true,
       createdAt: true,
       updatedAt: true
+    }
+  });
+}
+
+export async function listWorkflowRecipes(actorRoles: string[]) {
+  return prisma.recipe.findMany({
+    where: isAdmin(actorRoles)
+      ? {}
+      : {
+          status: RecipeStatus.ACTIVE
+        },
+    orderBy: [{ name: 'asc' }],
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      status: true,
+      difficulty: true
     }
   });
 }

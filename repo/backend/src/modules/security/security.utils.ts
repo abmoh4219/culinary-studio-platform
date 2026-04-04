@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { FastifyRequest } from 'fastify';
+import { getConfig } from '../../lib/config';
 
 export function sha256Hex(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -34,7 +35,7 @@ export function bodyHash(body: unknown): string {
 }
 
 function parsePrefixes(): string[] {
-  const raw = process.env.SECURITY_ACTION_PATH_PREFIXES || '/bookings,/billing,/invoices,/payments';
+  const raw = getConfig().SECURITY_ACTION_PATH_PREFIXES;
   return raw
     .split(',')
     .map((segment) => segment.trim())

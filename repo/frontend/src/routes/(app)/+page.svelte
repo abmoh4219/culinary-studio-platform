@@ -8,18 +8,18 @@
   import { TableShell } from '$lib/components/ui/table';
 
   const metricCards = [
-    { label: 'Session Throughput', value: '1,842', trend: '+12.4%' },
-    { label: 'Pipeline Health', value: '98.6%', trend: '+0.8%' },
-    { label: 'Deploy Cadence', value: '17 / week', trend: '+2.1%' },
-    { label: 'Queue Backlog', value: '23', trend: '-6.7%' }
+    { label: 'Classes Served This Week', value: '142', trend: '+9.2%' },
+    { label: 'Waitlist Conversion Rate', value: '84.7%', trend: '+3.4%' },
+    { label: 'On-Time Class Starts', value: '97.9%', trend: '+1.1%' },
+    { label: 'Open Dietary Alerts', value: '6', trend: '-18.0%' }
   ];
 
   const activityHeaders = ['Segment', 'Status', 'Updated'];
   const activityRows = [
-    ['Onboarding shell', 'Ready', '5 min ago'],
-    ['Auth guard stubs', 'Ready', '12 min ago'],
-    ['Design system layer', 'Ready', '20 min ago'],
-    ['QA polish pass', 'In review', '32 min ago']
+    ['Evening knife-skills cohort', 'Confirmed', '4 min ago'],
+    ['Saturday pastry lab', 'Waitlist active', '11 min ago'],
+    ['Private tasting booking', 'Rescheduled', '19 min ago'],
+    ['Instructor shift board', 'Updated', '27 min ago']
   ];
 
   let loading = true;
@@ -40,7 +40,7 @@
         <p class="section-eyebrow">Studio Operations</p>
         <h2 class="mt-s2 text-2xl font-semibold tracking-tight md:text-3xl">Command Surface</h2>
         <p class="mt-s3 max-w-2xl text-sm leading-6 text-muted-foreground md:text-base">
-          Monitor momentum across bookings, workflows, and reliability signals in one polished workspace.
+          Monitor live class demand, booking pressure, workflow timing, and member retention signals for studio operations.
         </p>
       </div>
       <Button variant="secondary" on:click={() => toast.success('Action completed', { description: 'Global notifications are active.' })}>
@@ -81,9 +81,9 @@
             </div>
           {/each}
         {:else}
-          <div class="glass-panel px-s4 py-s4">Design tokens now align with the sign-in experience: atmospheric surfaces, cyan accent discipline, and consistent hierarchy.</div>
-          <div class="glass-panel px-s4 py-s4">Motion remains subtle and respects reduced-motion preferences.</div>
-          <div class="glass-panel px-s4 py-s4">Role-guarded route groups continue to protect workspace access.</div>
+          <div class="glass-panel px-s4 py-s4">Prime-time classes are filling quickly; front-desk can pre-stage waitlist promotions for 6 PM and 7 PM windows.</div>
+          <div class="glass-panel px-s4 py-s4">Recipe-player completion accuracy improved after cue text revisions and timer recalibration.</div>
+          <div class="glass-panel px-s4 py-s4">Admin billing overrides remain below policy thresholds with fully captured approver audit metadata.</div>
         {/if}
       </div>
     </Card>

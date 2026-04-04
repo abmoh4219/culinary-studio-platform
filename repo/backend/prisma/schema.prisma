@@ -728,7 +728,7 @@ model Notification {
   payloadJson           Json?
   bodyCiphertext        String?            @db.Text
   bodyIv                String?            @db.VarChar(64)
-  destinationHash       String?            @db.VarChar(128)
+  destinationHash       String?            @db.VarChar(64)
   destinationCiphertext String?            @db.Text
   destinationIv         String?            @db.VarChar(64)
   scheduledFor          DateTime?

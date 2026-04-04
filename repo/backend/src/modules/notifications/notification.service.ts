@@ -7,6 +7,7 @@ import {
 import { encryptOptionalField } from '../../lib/crypto';
 import { prisma } from '../../lib/prisma';
 import { AuthError } from '../auth/auth.service';
+import { sha256Hex } from '../security/security.utils';
 
 type CreateNotificationInput = {
   actorUserId: string;
@@ -198,6 +199,7 @@ export async function createNotification(input: CreateNotificationInput) {
   const status = muted ? NotificationStatus.CANCELED : NotificationStatus.QUEUED;
   const encryptedBody = encryptOptionalField(input.body);
   const encryptedDestination = encryptOptionalField(input.destination);
+  const destinationHash = input.destination ? sha256Hex(input.destination.trim().toLowerCase()) : null;
 
   const created = await prisma.notification.create({
     data: {
@@ -211,7 +213,7 @@ export async function createNotification(input: CreateNotificationInput) {
       bodyIv: encryptedBody.iv,
       destinationCiphertext: encryptedDestination.ciphertext,
       destinationIv: encryptedDestination.iv,
-      destinationHash: input.destination ? input.destination.toLowerCase() : null,
+      destinationHash,
       scheduledFor,
       failureReason: muted ? 'Muted by user preference' : null
     },

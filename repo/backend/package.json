@@ -24,7 +24,6 @@
     "@fastify/swagger-ui": "^1.10.2",
     "@prisma/client": "6.6.0",
     "argon2": "^0.41.1",
-    "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
     "ioredis": "^5.4.1",
     "prisma": "6.6.0"

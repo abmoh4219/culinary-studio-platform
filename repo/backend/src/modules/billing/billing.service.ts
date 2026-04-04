@@ -15,6 +15,7 @@ import {
   WalletStatus,
   WalletTransactionType
 } from '../../../prisma/generated';
+import { getConfig } from '../../lib/config';
 import { encryptOptionalField } from '../../lib/crypto';
 import { prisma } from '../../lib/prisma';
 import { AuthError } from '../auth/auth.service';
@@ -842,7 +843,7 @@ type ManualPaymentInput = {
 };
 
 function taxRate(): number {
-  const raw = process.env.SALES_TAX_RATE;
+  const raw = String(getConfig().SALES_TAX_RATE);
   if (!raw) {
     return 0.08875;
   }
@@ -856,7 +857,7 @@ function taxRate(): number {
 }
 
 function defaultInvoiceDueDays(): number {
-  const raw = process.env.INVOICE_DUE_DAYS;
+  const raw = String(getConfig().INVOICE_DUE_DAYS);
   if (!raw) {
     return 14;
   }

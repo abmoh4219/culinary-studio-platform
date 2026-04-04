@@ -10,6 +10,7 @@ import {
   WebhookFailureTriggerType,
   WebhookStatus
 } from '../../../prisma/generated';
+import { getConfig } from '../../lib/config';
 import { decryptOptionalField, encryptFieldValue, encryptOptionalField } from '../../lib/crypto';
 import { prisma } from '../../lib/prisma';
 import { AuthError } from '../auth/auth.service';
@@ -145,12 +146,7 @@ function normalizeName(raw: string): string {
 }
 
 function allowLocalTargets(): boolean {
-  const raw = process.env.WEBHOOK_ALLOW_LOCAL_TARGETS;
-  if (!raw) {
-    return process.env.NODE_ENV !== 'production';
-  }
-
-  return raw === 'true';
+  return getConfig().WEBHOOK_ALLOW_LOCAL_TARGETS;
 }
 
 function isLocalHostname(hostname: string): boolean {
@@ -196,8 +192,8 @@ function normalizeSecret(raw: string): string {
 }
 
 function nextBackoffDelaySeconds(attemptNumber: number): number {
-  const base = Number(process.env.WEBHOOK_RETRY_BASE_SECONDS || 5);
-  const cap = Number(process.env.WEBHOOK_RETRY_MAX_SECONDS || 300);
+  const base = getConfig().WEBHOOK_RETRY_BASE_SECONDS;
+  const cap = getConfig().WEBHOOK_RETRY_MAX_SECONDS;
 
   const safeBase = Number.isFinite(base) && base > 0 ? base : 5;
   const safeCap = Number.isFinite(cap) && cap > 0 ? cap : 300;
@@ -207,7 +203,7 @@ function nextBackoffDelaySeconds(attemptNumber: number): number {
 }
 
 function failureAlertThresholdAttempts(): number {
-  const raw = Number(process.env.WEBHOOK_FAILURE_ALERT_THRESHOLD_ATTEMPTS || 3);
+  const raw = getConfig().WEBHOOK_FAILURE_ALERT_THRESHOLD_ATTEMPTS;
   if (!Number.isFinite(raw) || raw <= 0) {
     return 3;
   }

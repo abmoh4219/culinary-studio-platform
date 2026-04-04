@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { UserStatus } from '../../../prisma/generated';
+import { getConfig } from '../../lib/config';
 import { prisma } from '../../lib/prisma';
 
 import { hashPassword, verifyPassword } from './password.service';
@@ -56,9 +57,10 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 }
 
 function lockoutConfig() {
+  const config = getConfig();
   return {
-    maxAttempts: parsePositiveInt(process.env.AUTH_LOCK_MAX_ATTEMPTS, 10),
-    lockMinutes: parsePositiveInt(process.env.AUTH_LOCK_DURATION_MINUTES, 15)
+    maxAttempts: parsePositiveInt(String(config.AUTH_LOCK_MAX_ATTEMPTS), 10),
+    lockMinutes: parsePositiveInt(String(config.AUTH_LOCK_DURATION_MINUTES), 15)
   };
 }
 
@@ -254,4 +256,60 @@ export async function loginUser(input: LoginInput) {
 
   const roles = await getRoleCodes(user.id);
   return sanitizeUser({ ...user, roles });
+}
+
+export async function getUserConsentRecord(actorRoles: string[], userId: string) {
+  if (!actorRoles.includes('ADMIN')) {
+    throw new AuthError('Only admins can read consent records', 403);
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      username: true,
+      displayName: true,
+      consentGranted: true,
+      consentGrantedAt: true,
+      status: true
+    }
+  });
+
+  if (!user) {
+    throw new AuthError('User not found', 404);
+  }
+
+  return {
+    user
+  };
+}
+
+export async function updateUserConsentRecord(input: {
+  actorRoles: string[];
+  userId: string;
+  consentGranted: boolean;
+}) {
+  if (!input.actorRoles.includes('ADMIN')) {
+    throw new AuthError('Only admins can update consent records', 403);
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: input.userId },
+    data: {
+      consentGranted: input.consentGranted,
+      consentGrantedAt: input.consentGranted ? new Date() : null
+    },
+    select: {
+      id: true,
+      username: true,
+      displayName: true,
+      consentGranted: true,
+      consentGrantedAt: true,
+      status: true
+    }
+  });
+
+  return {
+    user: updated
+  };
 }

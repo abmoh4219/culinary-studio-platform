@@ -1,4 +1,5 @@
 import type { CookieSerializeOptions } from '@fastify/cookie';
+import { getConfig } from '../../lib/config';
 
 export const AUTH_COOKIE_NAME = 'access_token';
 
@@ -35,13 +36,13 @@ function parseDurationToSeconds(value: string | undefined, fallbackSeconds: numb
 }
 
 export function getAuthCookieOptions(): CookieSerializeOptions {
-  const secure = process.env.NODE_ENV === 'production' || process.env.AUTH_COOKIE_SECURE === 'true';
-  const maxAge = parseDurationToSeconds(process.env.JWT_ACCESS_EXPIRES_IN, 15 * 60);
+  const config = getConfig();
+  const maxAge = parseDurationToSeconds(config.JWT_ACCESS_EXPIRES_IN, 15 * 60);
 
   return {
     httpOnly: true,
-    secure,
-    sameSite: 'lax',
+    secure: config.AUTH_COOKIE_SECURE,
+    sameSite: config.AUTH_COOKIE_SAME_SITE,
     path: '/',
     maxAge
   };

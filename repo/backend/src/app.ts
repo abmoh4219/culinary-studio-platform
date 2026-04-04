@@ -6,54 +6,24 @@ import swaggerUi from '@fastify/swagger-ui';
 import Fastify from 'fastify';
 import Redis from 'ioredis';
 
-import { getEnv } from './config/env';
+import { getConfig } from './lib/config';
 import { normalizeError, normalizeErrorPayload } from './lib/errors';
 import { buildLoggerOptions, childRequestLogger } from './lib/logger';
 import { prisma } from './lib/prisma';
 import { AUTH_COOKIE_NAME } from './modules/auth/auth.constants';
 import { resolveApiPrefix } from './modules/api/api-versioning';
+import { requireAuth } from './modules/auth/auth.middleware';
 import { createAuditOnResponseHook } from './modules/audit/audit.hooks';
 import { v1Routes } from './modules/api/v1.routes';
 import { createIdempotencyMiddleware } from './modules/security/idempotency.middleware';
 import { createUserRateLimitMiddleware } from './modules/security/rate-limit.middleware';
 import { createSignedRequestMiddleware } from './modules/security/signed-request.middleware';
-
-function resolveCorsOrigin(): true | string[] {
-  const raw = process.env.CORS_ORIGIN;
-  if (!raw || raw.trim() === '*') {
-    return true;
-  }
-
-  const origins = raw
-    .split(',')
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-
-  return origins.length > 0 ? origins : true;
-}
-
-function resolveTrustProxy(): boolean | number {
-  const raw = process.env.TRUST_PROXY;
-  if (!raw) {
-    return false;
-  }
-
-  if (raw === 'true') {
-    return true;
-  }
-
-  const parsed = Number(raw);
-  if (Number.isFinite(parsed) && parsed >= 0) {
-    return Math.floor(parsed);
-  }
-
-  return false;
-}
+import { isProtectedBusinessAction } from './modules/security/security.utils';
 
 export function buildApp() {
-  const env = getEnv();
-  const app = Fastify({ logger: buildLoggerOptions(), trustProxy: resolveTrustProxy() });
-  const exposeOperationalDetails = env.NODE_ENV === 'development';
+  const config = getConfig();
+  const app = Fastify({ logger: buildLoggerOptions(), trustProxy: config.TRUST_PROXY });
+  const exposeOperationalDetails = config.NODE_ENV === 'development';
 
   app.addHook('onRequest', async (request) => {
     const path = request.url.split('?')[0] || '/';
@@ -73,7 +43,7 @@ export function buildApp() {
   });
 
   app.register(cors, {
-    origin: resolveCorsOrigin(),
+    origin: config.CORS_ORIGINS,
     credentials: true
   });
 
@@ -107,15 +77,28 @@ export function buildApp() {
   }
 
   app.register(cookie, {
-    hook: 'onRequest'
+    hook: 'onRequest',
+    parseOptions: {
+      secure: true,
+      httpOnly: true,
+      sameSite: 'strict'
+    }
   });
 
   app.register(jwt, {
-    secret: env.JWT_ACCESS_SECRET,
+    secret: config.JWT_ACCESS_SECRET,
     cookie: {
       cookieName: AUTH_COOKIE_NAME,
       signed: false
     }
+  });
+
+  app.addHook('preHandler', async (request, reply) => {
+    if (!isProtectedBusinessAction(request)) {
+      return;
+    }
+
+    await requireAuth(request, reply);
   });
 
   app.addHook('preHandler', createUserRateLimitMiddleware(app));
@@ -147,7 +130,7 @@ export function buildApp() {
       return;
     }
 
-    const normalized = normalizeError(error, process.env.NODE_ENV);
+    const normalized = normalizeError(error, config.NODE_ENV);
     const level = normalized.statusCode >= 500 ? 'error' : 'warn';
     request.log[level]({ err: error, statusCode: normalized.statusCode }, 'Unhandled request error');
     reply.code(normalized.statusCode).send(normalized.body);
@@ -224,8 +207,8 @@ export function buildApp() {
       checks.database = { ok: false, details: 'Database connection failed' };
     }
 
-    if (env.REDIS_URL) {
-      const redis = new Redis(env.REDIS_URL, {
+    if (config.REDIS_URL) {
+      const redis = new Redis(config.REDIS_URL, {
         maxRetriesPerRequest: 0,
         lazyConnect: true
       });

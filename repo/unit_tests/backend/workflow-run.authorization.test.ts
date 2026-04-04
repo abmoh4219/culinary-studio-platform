@@ -30,7 +30,6 @@ vi.mock('../../backend/src/lib/prisma', () => ({
   }
 }));
 
-import { AuthError } from '../../backend/src/modules/auth/auth.service';
 import { createWorkflowRun } from '../../backend/src/modules/workflows/workflow-run.service';
 
 describe('workflow-run.service booking authorization', () => {
@@ -56,7 +55,7 @@ describe('workflow-run.service booking authorization', () => {
         recipeId: 'recipe-1',
         bookingId: 'booking-1'
       })
-    ).rejects.toMatchObject<AuthError>({
+    ).rejects.toMatchObject({
       message: 'Not allowed to reference this booking',
       statusCode: 403
     });
@@ -184,5 +183,28 @@ describe('workflow-run.service booking authorization', () => {
       select: { id: true, userId: true }
     });
     expect(workflowRunFindFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects instructor after assignment revocation for referenced booking', async () => {
+    bookingFindUnique.mockResolvedValue({
+      id: 'booking-1',
+      userId: 'owner-1'
+    });
+    workflowRunFindFirst.mockResolvedValue(null);
+
+    await expect(
+      createWorkflowRun({
+        actorUserId: 'instructor-1',
+        actorRoles: ['INSTRUCTOR'],
+        recipeId: 'recipe-1',
+        bookingId: 'booking-1'
+      })
+    ).rejects.toMatchObject({
+      message: 'Not allowed to reference this booking',
+      statusCode: 403
+    });
+
+    expect(recipeFindUnique).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Prisma } from '../../backend/prisma/generated';
 
 const mocks = vi.hoisted(() => ({
   executeRaw: vi.fn(),
@@ -8,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   bookingFindUnique: vi.fn(),
   bookingUpdate: vi.fn(),
   waitlistFindFirst: vi.fn(),
+  waitlistAggregate: vi.fn(),
+  waitlistCreate: vi.fn(),
   waitlistUpdate: vi.fn(),
   userRoleFindMany: vi.fn(),
   workflowRunFindFirst: vi.fn(),
@@ -32,6 +35,8 @@ vi.mock('../../backend/src/lib/prisma', () => ({
         },
         waitlist: {
           findFirst: mocks.waitlistFindFirst,
+          aggregate: mocks.waitlistAggregate,
+          create: mocks.waitlistCreate,
           update: mocks.waitlistUpdate
         },
         userRole: {
@@ -51,6 +56,7 @@ vi.mock('../../backend/src/lib/prisma', () => ({
 }));
 
 import { AuthError } from '../../backend/src/modules/auth/auth.service';
+import { prisma } from '../../backend/src/lib/prisma';
 import {
   cancelBooking,
   createBooking,
@@ -174,12 +180,103 @@ describe('booking lifecycle critical behaviors', () => {
       baseAmount: 100
     });
 
-    expect(at24h.preview.policyBand).toBe('HALF');
-    expect(at24h.preview.feePercent).toBe(50);
-    expect(at2h.preview.policyBand).toBe('HALF');
-    expect(at2h.preview.feePercent).toBe(50);
+    expect(at24h.preview.policyBand).toBe('FREE');
+    expect(at24h.preview.feePercent).toBe(0);
+    expect(at2h.preview.policyBand).toBe('FULL');
+    expect(at2h.preview.feePercent).toBe(100);
+    expect(at24h.preview.generatedAt).toBe(baseNow.toISOString());
+    expect(at24h.preview.hoursBeforeStart).toBe(24);
 
     vi.useRealTimers();
+  });
+
+  it('assigns second and third waitlist queue positions sequentially', async () => {
+    const { joinWaitlist } = await import('../../backend/src/modules/bookings/booking.service');
+    const startAt = new Date(Date.now() + 26 * 60 * 60 * 1000);
+    const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
+
+    mocks.executeRaw.mockResolvedValue(undefined);
+    mocks.bookingCount.mockResolvedValue(1);
+    mocks.waitlistFindFirst.mockResolvedValue(null);
+    mocks.waitlistAggregate
+      .mockResolvedValueOnce({ _max: { queuePosition: 1 } })
+      .mockResolvedValueOnce({ _max: { queuePosition: 2 } });
+    mocks.waitlistCreate
+      .mockResolvedValueOnce({ id: 'w-2', userId: 'member-2', queuePosition: 2, status: 'WAITING', createdAt: new Date() })
+      .mockResolvedValueOnce({ id: 'w-3', userId: 'member-3', queuePosition: 3, status: 'WAITING', createdAt: new Date() });
+
+    const second = await joinWaitlist({
+      userId: 'member-2',
+      userRoles: ['MEMBER'],
+      sessionKey: 'group.class.demo',
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      capacity: 1
+    });
+
+    const third = await joinWaitlist({
+      userId: 'member-3',
+      userRoles: ['MEMBER'],
+      sessionKey: 'group.class.demo',
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      capacity: 1
+    });
+
+    expect(second.waitlistEntry.queuePosition).toBe(2);
+    expect(third.waitlistEntry.queuePosition).toBe(3);
+  });
+
+  it('retries waitlist join when first insert hits concurrent unique conflict', async () => {
+    const { joinWaitlist } = await import('../../backend/src/modules/bookings/booking.service');
+    const startAt = new Date(Date.now() + 26 * 60 * 60 * 1000);
+    const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
+
+    const originalTransaction = vi.mocked(prisma.$transaction);
+    originalTransaction
+      .mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('conflict', {
+        code: 'P2002',
+        clientVersion: 'test'
+      }))
+      .mockImplementationOnce(async (handler: any) => {
+        const tx = {
+          $executeRaw: mocks.executeRaw,
+          booking: {
+            count: mocks.bookingCount
+          },
+          waitlist: {
+            findFirst: mocks.waitlistFindFirst,
+            aggregate: mocks.waitlistAggregate,
+            create: mocks.waitlistCreate
+          }
+        };
+
+        return handler(tx);
+      });
+
+    mocks.executeRaw.mockResolvedValue(undefined);
+    mocks.bookingCount.mockResolvedValue(1);
+    mocks.waitlistFindFirst.mockResolvedValue(null);
+    mocks.waitlistAggregate.mockResolvedValue({ _max: { queuePosition: 0 } });
+    mocks.waitlistCreate.mockResolvedValue({
+      id: 'w-1',
+      userId: 'member-1',
+      queuePosition: 1,
+      status: 'WAITING',
+      createdAt: new Date()
+    });
+
+    const result = await joinWaitlist({
+      userId: 'member-1',
+      userRoles: ['MEMBER'],
+      sessionKey: 'group.class.demo',
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      capacity: 1
+    });
+
+    expect(result.waitlistEntry.queuePosition).toBe(1);
+    expect(originalTransaction).toHaveBeenCalledTimes(2);
   });
 
   it('allows reschedule at exactly 2 hours before original start time', async () => {

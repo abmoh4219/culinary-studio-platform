@@ -24,6 +24,7 @@
   let loadError: string | null = data.loadError;
 
   let recipeIdInput = '';
+  let recipeSearch = '';
   let bookingIdInput = '';
   let rollbackReason = 'Manual back navigation from player controls';
 
@@ -34,6 +35,22 @@
   let tickTimer: ReturnType<typeof setInterval> | null = null;
   let clockTimer: ReturnType<typeof setInterval> | null = null;
   let lastSpokenStepId: string | null = null;
+
+  $: recipeOptions = data.recipes ?? [];
+  $: filteredRecipes = recipeOptions
+    .filter((recipe) => {
+      const q = recipeSearch.trim().toLowerCase();
+      if (!q) {
+        return true;
+      }
+
+      return (
+        recipe.name.toLowerCase().includes(q) ||
+        recipe.code.toLowerCase().includes(q) ||
+        recipe.id.toLowerCase().includes(q)
+      );
+    })
+    .slice(0, 8);
 
   function statusTone(status: string): string {
     if (status === 'RUNNING') return 'text-emerald-600 dark:text-emerald-400';
@@ -319,8 +336,26 @@
       >
         <p class="text-sm font-semibold">Start run</p>
         <div class="space-y-s2">
-          <Label for="recipe-id">Recipe ID</Label>
-          <Input id="recipe-id" bind:value={recipeIdInput} placeholder="uuid" />
+          <Label for="recipe-search">Recipe selector</Label>
+          <Input id="recipe-search" bind:value={recipeSearch} placeholder="Search by recipe name or code" />
+          {#if filteredRecipes.length > 0}
+            <div class="max-h-44 space-y-1 overflow-auto rounded-md border bg-background p-s2">
+              {#each filteredRecipes as recipe}
+                <button
+                  type="button"
+                  class="w-full rounded-md border px-s3 py-s2 text-left text-sm transition-colors hover:bg-muted {recipe.id === recipeIdInput ? 'bg-muted' : ''}"
+                  on:click={() => {
+                    recipeIdInput = recipe.id;
+                    recipeSearch = `${recipe.name} (${recipe.code})`;
+                  }}
+                >
+                  <p class="font-medium">{recipe.name}</p>
+                  <p class="text-xs text-muted-foreground">{recipe.code} · {recipe.difficulty}</p>
+                </button>
+              {/each}
+            </div>
+          {/if}
+          <Input id="recipe-id" bind:value={recipeIdInput} placeholder="Selected recipe ID" readonly />
         </div>
         <div class="space-y-s2">
           <Label for="booking-id">Booking ID (optional)</Label>

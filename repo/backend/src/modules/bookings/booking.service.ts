@@ -1,4 +1,5 @@
 import { BookingSource, BookingStatus, NotificationScenario, Prisma, WaitlistStatus } from '../../../prisma/generated';
+import { getConfig } from '../../lib/config';
 import { encryptOptionalField } from '../../lib/crypto';
 import { prisma } from '../../lib/prisma';
 import { isAdminRole, isFrontDeskRole, isInstructorRole, isMemberRole } from '../auth/roles';
@@ -106,11 +107,11 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 }
 
 function nonMemberOpenHours(): number {
-  return parsePositiveInt(process.env.BOOKING_OPEN_HOURS_NON_MEMBER, 72);
+  return getConfig().BOOKING_OPEN_HOURS_NON_MEMBER;
 }
 
 function memberEarlyAccessHours(): number {
-  return parsePositiveInt(process.env.BOOKING_MEMBER_EARLY_ACCESS_HOURS, 24);
+  return getConfig().BOOKING_MEMBER_EARLY_ACCESS_HOURS;
 }
 
 function sanitizeKey(value: string): string {
@@ -260,44 +261,56 @@ type CancellationFeePreview = {
   feeAmount: number;
   baseAmount: number;
   secondsUntilStart: number;
+  hoursBeforeStart: number;
+  generatedAt: string;
 };
 
 function calculateCancellationFee(startAt: Date, baseAmount: number, now: Date): CancellationFeePreview {
   const secondsUntilStart = Math.floor((startAt.getTime() - now.getTime()) / 1000);
+  const hoursBeforeStart = Math.round((secondsUntilStart / 3600) * 100) / 100;
+  const generatedAt = now.toISOString();
 
-  // Boundary policy:
-  // - FREE only when strictly greater than 24h before start.
-  // - 50% when <=24h and >=2h before start (exactly 24h and exactly 2h are in this band).
-  // - 100% when strictly less than 2h before start.
-  if (secondsUntilStart > 24 * 60 * 60) {
+  // Policy semantics:
+  // - FREE up to 24h before start (inclusive).
+  // - 100% within 2h before start (inclusive).
+  // - 50% between those windows.
+  if (secondsUntilStart >= 24 * 60 * 60) {
     return {
       policyBand: 'FREE',
       feePercent: 0,
       feeAmount: 0,
       baseAmount,
-      secondsUntilStart
+      secondsUntilStart,
+      hoursBeforeStart,
+      generatedAt
     };
   }
 
-  if (secondsUntilStart >= 2 * 60 * 60) {
+  if (secondsUntilStart <= 2 * 60 * 60) {
+    const feeAmount = Math.round(baseAmount * 100) / 100;
+    return {
+      policyBand: 'FULL',
+      feePercent: 100,
+      feeAmount,
+      baseAmount,
+      secondsUntilStart,
+      hoursBeforeStart,
+      generatedAt
+    };
+  }
+
+  {
     const feeAmount = Math.round(baseAmount * 0.5 * 100) / 100;
     return {
       policyBand: 'HALF',
       feePercent: 50,
       feeAmount,
       baseAmount,
-      secondsUntilStart
+      secondsUntilStart,
+      hoursBeforeStart,
+      generatedAt
     };
   }
-
-  const feeAmount = Math.round(baseAmount * 100) / 100;
-  return {
-    policyBand: 'FULL',
-    feePercent: 100,
-    feeAmount,
-    baseAmount,
-    secondsUntilStart
-  };
 }
 
 function validateCreateInput(input: CreateBookingInput): {
@@ -734,71 +747,104 @@ export async function joinWaitlist(input: JoinWaitlistInput) {
   const sessionWaitlistKey = waitlistScopeResourceKey(sessionKey, startAt);
   const queueDate = queueDateFromSessionStart(startAt);
 
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`
-      SELECT pg_advisory_xact_lock(hashtext(${lockKey}))
-    `;
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock(hashtext(${lockKey}))
+        `;
 
-    const activeBookings = await activeSessionBookingsCount(tx, sessionKey, startAt, endAt);
-    if (activeBookings < capacity) {
-      throw new AuthError('Session has available capacity, booking is still possible', 409);
-    }
-
-    const existingWaitlist = await tx.waitlist.findFirst({
-      where: {
-        userId: input.userId,
-        resourceKey: sessionWaitlistKey,
-        desiredStartAt: startAt,
-        desiredEndAt: endAt,
-        status: {
-          in: [WaitlistStatus.WAITING, WaitlistStatus.OFFERED]
+        const activeBookings = await activeSessionBookingsCount(tx, sessionKey, startAt, endAt);
+        if (activeBookings < capacity) {
+          throw new AuthError('Session has available capacity, booking is still possible', 409);
         }
-      },
-      select: {
-        id: true,
-        queuePosition: true,
-        status: true
-      }
-    });
 
-    if (existingWaitlist) {
-      return {
-        alreadyQueued: true,
-        waitlistEntry: existingWaitlist
-      };
+        const existingWaitlist = await tx.waitlist.findFirst({
+          where: {
+            userId: input.userId,
+            resourceKey: sessionWaitlistKey,
+            desiredStartAt: startAt,
+            desiredEndAt: endAt,
+            status: {
+              in: [WaitlistStatus.WAITING, WaitlistStatus.OFFERED]
+            }
+          },
+          select: {
+            id: true,
+            queuePosition: true,
+            status: true
+          }
+        });
+
+        if (existingWaitlist) {
+          return {
+            alreadyQueued: true,
+            waitlistEntry: existingWaitlist
+          };
+        }
+
+        const queueMax = await tx.waitlist.aggregate({
+          where: {
+            resourceKey: sessionWaitlistKey,
+            desiredStartAt: startAt,
+            desiredEndAt: endAt,
+            queueDate,
+            status: {
+              in: [WaitlistStatus.WAITING, WaitlistStatus.OFFERED, WaitlistStatus.CONVERTED]
+            }
+          },
+          _max: {
+            queuePosition: true
+          }
+        });
+
+        const nextQueuePosition = (queueMax._max.queuePosition ?? 0) + 1;
+        const contact = encryptOptionalField(input.contact);
+        const notes = encryptOptionalField(input.notes);
+
+        const entry = await tx.waitlist.create({
+          data: {
+            userId: input.userId,
+            resourceKey: sessionWaitlistKey,
+            desiredStartAt: startAt,
+            desiredEndAt: endAt,
+            queueDate,
+            queuePosition: nextQueuePosition,
+            status: WaitlistStatus.WAITING,
+            contactCiphertext: contact.ciphertext,
+            contactIv: contact.iv,
+            notesCiphertext: notes.ciphertext,
+            notesIv: notes.iv
+          },
+          select: {
+            id: true,
+            userId: true,
+            queuePosition: true,
+            status: true,
+            createdAt: true
+          }
+        });
+
+        return {
+          alreadyQueued: false,
+          waitlistEntry: entry
+        };
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002' &&
+        attempt < maxRetries
+      ) {
+        continue;
+      }
+
+      throw error;
     }
+  }
 
-    const contact = encryptOptionalField(input.contact);
-    const notes = encryptOptionalField(input.notes);
-
-    const entry = await tx.waitlist.create({
-      data: {
-        userId: input.userId,
-        resourceKey: sessionWaitlistKey,
-        desiredStartAt: startAt,
-        desiredEndAt: endAt,
-        queueDate,
-        queuePosition: 0,
-        status: WaitlistStatus.WAITING,
-        contactCiphertext: contact.ciphertext,
-        contactIv: contact.iv,
-        notesCiphertext: notes.ciphertext,
-        notesIv: notes.iv
-      },
-      select: {
-        id: true,
-        userId: true,
-        queuePosition: true,
-        status: true,
-        createdAt: true
-      }
-    });
-
-    return {
-      alreadyQueued: false,
-      waitlistEntry: entry
-    };
-  });
+  throw new AuthError('Unable to join waitlist due to concurrent queue conflict', 409);
 }
 
 export async function getWaitlist(input: { sessionKey: string; startAt: string; endAt: string }) {

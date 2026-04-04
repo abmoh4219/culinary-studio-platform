@@ -21,7 +21,8 @@ const {
   publishWebhookEvent,
   queryWebhookLogs,
   queryWebhookFailureAlerts,
-  acknowledgeWebhookFailureAlert
+  acknowledgeWebhookFailureAlert,
+  writeAuditLog
 } = vi.hoisted(() => ({
   loginUser: vi.fn(),
   createBooking: vi.fn(),
@@ -41,7 +42,8 @@ const {
   publishWebhookEvent: vi.fn(),
   queryWebhookLogs: vi.fn(),
   queryWebhookFailureAlerts: vi.fn(),
-  acknowledgeWebhookFailureAlert: vi.fn()
+  acknowledgeWebhookFailureAlert: vi.fn(),
+  writeAuditLog: vi.fn()
 }));
 
 vi.mock('../backend/src/modules/auth/auth.service', () => {
@@ -142,6 +144,10 @@ vi.mock('../backend/src/modules/analytics/analytics-export.service', () => ({
   exportAnalyticsCsv
 }));
 
+vi.mock('../backend/src/modules/audit/audit.service', () => ({
+  writeAuditLog
+}));
+
 import { AUTH_COOKIE_NAME } from '../backend/src/modules/auth/auth.constants';
 import { AuthError } from '../backend/src/modules/auth/auth.service';
 import { buildApp } from '../backend/src/app';
@@ -179,6 +185,32 @@ describe('API tests', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().user.username).toBe('demo');
+  });
+
+  it('auth: login lockout path writes audit log with locked outcome', async () => {
+    loginUser.mockRejectedValue(new AuthError('Account is temporarily locked. Try again later.', 423));
+    writeAuditLog.mockResolvedValue(undefined);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: {
+        username: 'demo',
+        password: 'secret'
+      }
+    });
+
+    expect(response.statusCode).toBe(423);
+    expect(writeAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'MANUAL',
+        entityType: 'auth_login',
+        afterJson: expect.objectContaining({
+          outcome: 'locked',
+          statusCode: 423
+        })
+      })
+    );
   });
 
   it('authorization negative: protected endpoint rejects anonymous access', async () => {

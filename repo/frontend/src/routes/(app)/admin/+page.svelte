@@ -33,6 +33,7 @@
   let alertsLimit = data.filters.alertsLimit || '50';
 
   let privacyUserId = data.filters.privacyUserId || '';
+  let consentUserId = data.filters.consentUserId || '';
 
   let invoiceCustomerUserId = '';
   let invoiceLineType = 'MEMBERSHIP_PLAN';
@@ -47,6 +48,7 @@
 
   let globalMuted = false;
   let mutedCategories = '';
+  let consentGranted = 'false';
 
   $: issuedInvoice =
     form?.action === 'issueDiscountInvoice' && form?.success
@@ -65,6 +67,10 @@
   $: updatedPreference =
     form?.action === 'updatePrivacyControls' && form?.success
       ? (form.preference as { preference?: { userId?: string } } | null)
+      : null;
+  $: updatedConsent =
+    form?.action === 'updateConsentControls' && form?.success
+      ? (form.consent as { user?: { id?: string; consentGranted?: boolean } } | null)
       : null;
 
   $: if (form?.action && !form?.success && form?.message) {
@@ -87,6 +93,12 @@
     toast.success('Privacy controls updated', { description: updatedPreference.preference.userId });
   }
 
+  $: if (updatedConsent?.user?.id) {
+    toast.success('Consent record updated', {
+      description: `${updatedConsent.user.id}: ${updatedConsent.user.consentGranted ? 'granted' : 'revoked'}`
+    });
+  }
+
   onMount(() => {
     if (data.errors.length > 0) {
       toast.warning('Some admin data failed to load', { description: data.errors[0] });
@@ -95,6 +107,10 @@
     if (data.privacyPreference?.preference) {
       globalMuted = data.privacyPreference.preference.globalMuted;
       mutedCategories = data.privacyPreference.preference.mutedCategories.join(',');
+    }
+
+    if (data.consentRecord?.user) {
+      consentGranted = data.consentRecord.user.consentGranted ? 'true' : 'false';
     }
   });
 </script>
@@ -367,13 +383,13 @@
 
       <div class="mt-s4 glass-panel p-s3 text-sm">
         <p>Admin health endpoint: <span class="font-medium">{data.securityHealth?.status ?? 'unavailable'}</span></p>
-        <p class="mt-1 text-muted-foreground">Use compose env (`.env.qa`) to configure lockout/rate-limit values for QA.</p>
+        <p class="mt-1 text-muted-foreground">All runtime controls are sourced from injected environment variables (no env files).</p>
       </div>
     </Card>
 
     <Card className="p-s5">
       <h2 class="text-base font-semibold">Consent and privacy controls</h2>
-      <p class="mt-s1 text-sm text-muted-foreground">Update user notification muting controls (current privacy endpoints exposed by backend).</p>
+      <p class="mt-s1 text-sm text-muted-foreground">Manage notification privacy preferences and explicit user consent records.</p>
 
       <form method="GET" class="mt-s4 space-y-s3 rounded-lg border border-border/70 bg-background/30 p-s4">
         <div class="space-y-s2">
@@ -407,9 +423,36 @@
         </div>
       {/if}
 
-      <p class="mt-s4 text-xs text-muted-foreground">
-        Consent grant flags/data-minimization toggles are not currently exposed by dedicated backend endpoints; this page integrates all privacy endpoints currently available.
-      </p>
+      <form method="GET" class="mt-s5 space-y-s3 rounded-lg border border-border/70 bg-background/30 p-s4">
+        <div class="space-y-s2">
+          <Label for="consent-user-id">Consent user ID</Label>
+          <Input id="consent-user-id" name="consentUserId" bind:value={consentUserId} />
+        </div>
+        <Button type="submit" variant="secondary">Load consent record</Button>
+      </form>
+
+      {#if data.consentRecord?.user}
+        <form method="POST" action="?/updateConsentControls" class="mt-s4 space-y-s3 rounded-md border border-border/70 bg-background/35 p-s3">
+          <input type="hidden" name="userId" value={consentUserId} />
+          <div class="space-y-s2">
+            <Label for="consent-granted">Consent granted</Label>
+            <select id="consent-granted" name="consentGranted" bind:value={consentGranted} class="field-select">
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+          <div class="text-xs text-muted-foreground">
+            Current: {data.consentRecord.user.username} · {data.consentRecord.user.consentGranted ? 'granted' : 'revoked'}
+          </div>
+          <Button type="submit">Update consent record</Button>
+        </form>
+      {/if}
+
+      {#if updatedConsent?.user?.id}
+        <div class="mt-s3 rounded-md border border-emerald-300/60 bg-emerald-50 px-s3 py-s2 text-sm text-emerald-800 dark:border-emerald-700/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+          Updated consent for user {updatedConsent.user.id}.
+        </div>
+      {/if}
     </Card>
   </div>
 </div>

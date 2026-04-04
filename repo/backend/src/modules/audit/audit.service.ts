@@ -1,4 +1,5 @@
 import { AuditAction, Prisma } from '../../../prisma/generated';
+import { getConfig } from '../../lib/config';
 import { encryptOptionalField } from '../../lib/crypto';
 import { prisma } from '../../lib/prisma';
 import { sha256Hex } from '../security/security.utils';
@@ -18,7 +19,8 @@ type AuditInput = {
 };
 
 export async function writeAuditLog(input: AuditInput): Promise<void> {
-  if (process.env.NODE_ENV === 'test' && process.env.RUN_REAL_INTEGRATION !== 'true') {
+  const config = getConfig();
+  if (config.NODE_ENV === 'test' && !config.RUN_REAL_INTEGRATION) {
     return;
   }
 

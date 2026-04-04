@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import { Prisma } from '../../../prisma/generated';
+import { getConfig } from '../../lib/config';
 import { prisma } from '../../lib/prisma';
 
 import { bodyHash, getRequestPath, isProtectedBusinessAction, sha256Hex } from './security.utils';
@@ -11,33 +12,20 @@ const TIMESTAMP_HEADER = 'x-timestamp';
 const NONCE_HEADER = 'x-nonce';
 const KEY_ID_HEADER = 'x-key-id';
 
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-
-  return Math.floor(parsed);
-}
-
 function maxSkewSeconds(): number {
-  return parsePositiveInt(process.env.SIGNED_REQUEST_MAX_SKEW_SECONDS, 300);
+  return getConfig().SIGNED_REQUEST_MAX_SKEW_SECONDS;
 }
 
 function nonceTtlSeconds(): number {
-  return parsePositiveInt(process.env.SIGNED_REQUEST_NONCE_TTL_SECONDS, 600);
+  return getConfig().SIGNED_REQUEST_NONCE_TTL_SECONDS;
 }
 
 function signingSecret(): string {
-  return process.env.SIGNED_REQUEST_SECRET || '';
+  return getConfig().SIGNED_REQUEST_SECRET;
 }
 
 function keyId(): string {
-  return process.env.SIGNED_REQUEST_KEY_ID || 'default';
+  return getConfig().SIGNED_REQUEST_KEY_ID;
 }
 
 function parseTimestamp(raw: string): number | null {
@@ -82,7 +70,7 @@ function buildCanonicalString(request: FastifyRequest, timestamp: string, nonce:
 }
 
 async function persistReplayGuard(request: FastifyRequest, nonce: string, signature: string, canonical: string, timestamp: string): Promise<boolean> {
-  const scopeKey = request.user?.sub ? `user:${request.user.sub}` : `ip:${request.ip}`;
+  const scopeKey = request.user?.sub ? `user:${request.user.sub}` : 'anonymous';
   const requestTimestamp = new Date(Number(timestamp) * 1000);
   const expiresAt = new Date(Date.now() + nonceTtlSeconds() * 1000);
 

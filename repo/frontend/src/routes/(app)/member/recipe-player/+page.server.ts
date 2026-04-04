@@ -1,6 +1,5 @@
-import { env } from '$env/dynamic/public';
-
 import { fetchApiJson } from '$lib/server/api';
+import { getFrontendConfig } from '$lib/server/config';
 
 import type { PageServerLoad } from './$types';
 
@@ -13,6 +12,16 @@ type ActiveRunsResponse = {
     currentPhaseNumber: number;
     startedAt: string | null;
     updatedAt: string;
+  }>;
+};
+
+type RecipeOptionsResponse = {
+  recipes: Array<{
+    id: string;
+    code: string;
+    name: string;
+    status: string;
+    difficulty: string;
   }>;
 };
 
@@ -87,8 +96,11 @@ type TimelineResponse = {
 };
 
 export const load: PageServerLoad = async (event) => {
-  const apiBaseUrl = env.PUBLIC_API_BASE_URL || 'http://localhost:4000/api/v1';
-  const active = await fetchApiJson<ActiveRunsResponse>(event, '/workflows/runs/active');
+  const apiBaseUrl = getFrontendConfig().publicApiBaseUrl;
+  const [active, recipes] = await Promise.all([
+    fetchApiJson<ActiveRunsResponse>(event, '/workflows/runs/active'),
+    fetchApiJson<RecipeOptionsResponse>(event, '/workflows/recipes').catch(() => ({ recipes: [] }))
+  ]);
 
   const requestedRunId = event.url.searchParams.get('runId');
   const selectedRunId = requestedRunId || active.runs[0]?.id || null;
@@ -111,6 +123,7 @@ export const load: PageServerLoad = async (event) => {
 
   return {
     apiBaseUrl,
+    recipes: recipes.recipes,
     activeRuns: active.runs,
     selectedRunId,
     runState,

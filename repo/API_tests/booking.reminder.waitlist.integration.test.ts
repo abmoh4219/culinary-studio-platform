@@ -210,15 +210,17 @@ describe('booking waitlist privacy and reminder authorization', () => {
     payload: unknown;
     nonce: string;
     idempotencyKey: string;
+    userId?: string;
     timestamp?: string;
   }): Record<string, string> {
     const timestamp = input.timestamp ?? String(Math.floor(Date.now() / 1000));
+    const userId = input.userId ?? 'owner-1';
     const canonical = [
       input.method.toUpperCase(),
       input.path,
       timestamp,
       input.nonce,
-      '',
+      userId,
       bodyHash(input.payload)
     ].join('\n');
 
@@ -286,7 +288,8 @@ describe('booking waitlist privacy and reminder authorization', () => {
           path,
           payload,
           nonce: 'nonce-reminder-a',
-          idempotencyKey: 'idem-reminder-a'
+          idempotencyKey: 'idem-reminder-a',
+          userId: 'member-2'
         })
       },
       payload
@@ -314,7 +317,8 @@ describe('booking waitlist privacy and reminder authorization', () => {
           path,
           payload,
           nonce: 'nonce-reminder-owner',
-          idempotencyKey: 'idem-reminder-owner'
+          idempotencyKey: 'idem-reminder-owner',
+          userId: 'owner-1'
         })
       },
       payload
@@ -341,7 +345,8 @@ describe('booking waitlist privacy and reminder authorization', () => {
           path,
           payload,
           nonce: 'nonce-reminder-staff',
-          idempotencyKey: 'idem-reminder-staff'
+          idempotencyKey: 'idem-reminder-staff',
+          userId: 'desk-1'
         })
       },
       payload
@@ -367,7 +372,8 @@ describe('booking waitlist privacy and reminder authorization', () => {
           path,
           payload,
           nonce: 'nonce-reminder-admin',
-          idempotencyKey: 'idem-reminder-admin'
+          idempotencyKey: 'idem-reminder-admin',
+          userId: 'admin-1'
         })
       },
       payload

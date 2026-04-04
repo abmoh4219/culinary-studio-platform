@@ -1,7 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { env } from '$env/dynamic/public';
   import { fade, fly } from 'svelte/transition';
   import { toast } from 'svelte-sonner';
 
@@ -48,7 +47,7 @@
     }
 
     signingOut = true;
-    const apiBaseUrl = env.PUBLIC_API_BASE_URL || 'http://localhost:4000/api/v1';
+    const apiBaseUrl = 'https://localhost:4000/api/v1';
 
     try {
       const response = await fetch(`${apiBaseUrl}/auth/logout`, {

@@ -1,4 +1,3 @@
-import { env } from '$env/dynamic/public';
 import type { RequestEvent } from '@sveltejs/kit';
 
 import {
@@ -89,7 +88,7 @@ export type WorkspaceCategoryView = {
 };
 
 function readEnv(key: string): string | null {
-  const value = (env as Record<string, string | undefined>)[key];
+  const value = process.env[key];
   if (!value) {
     return null;
   }

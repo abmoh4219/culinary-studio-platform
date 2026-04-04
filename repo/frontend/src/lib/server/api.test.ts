@@ -2,19 +2,14 @@ import { createHash, createHmac } from 'node:crypto';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('$env/dynamic/private', () => ({
-  env: {
-    API_INTERNAL_BASE_URL: 'http://backend:4000/api/v1',
-    SIGNED_REQUEST_SECRET: 'frontend_test_signed_secret',
-    SIGNED_REQUEST_KEY_ID: 'default',
-    SECURITY_ACTION_PATH_PREFIXES: '/bookings,/billing,/invoices,/payments'
-  }
-}));
-
-vi.mock('$env/dynamic/public', () => ({
-  env: {
-    PUBLIC_API_BASE_URL: 'http://localhost:4000/api/v1'
-  }
+vi.mock('./config', () => ({
+  getFrontendConfig: () => ({
+    apiInternalBaseUrl: 'https://backend:4000/api/v1',
+    publicApiBaseUrl: 'https://localhost:4000/api/v1',
+    securityActionPathPrefixes: '/bookings,/billing,/invoices,/payments',
+    signedRequestSecret: 'frontend_test_signed_secret',
+    signedRequestKeyId: 'default'
+  })
 }));
 
 import { postApiJson, putApiJson } from './api';
@@ -54,11 +49,12 @@ describe('server api mutation signing', () => {
       json: async () => ({ booking: { id: 'booking-1' } })
     });
 
+    const tokenPayload = Buffer.from(JSON.stringify({ sub: 'member-1' }), 'utf8').toString('base64url');
     const event = {
       fetch,
       request: new Request('http://frontend.local/member', {
         headers: {
-          cookie: 'access_token=test-cookie'
+          cookie: `access_token=aaa.${tokenPayload}.bbb`
         }
       })
     } as any;
@@ -75,9 +71,9 @@ describe('server api mutation signing', () => {
 
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0];
-    expect(url).toBe('http://backend:4000/api/v1/bookings');
+    expect(url).toBe('https://backend:4000/api/v1/bookings');
     expect(init.method).toBe('POST');
-    expect(init.headers.cookie).toBe('access_token=test-cookie');
+    expect(init.headers.cookie).toContain('access_token=');
     expect(init.headers['idempotency-key']).toBeTruthy();
     expect(init.headers['x-key-id']).toBe('default');
     expect(init.headers['x-nonce']).toBeTruthy();
@@ -88,7 +84,7 @@ describe('server api mutation signing', () => {
       '/api/v1/bookings',
       init.headers['x-timestamp'],
       init.headers['x-nonce'],
-      '',
+      'member-1',
       bodyHash(body)
     ].join('\n');
     const expectedSignature = createHmac('sha256', 'frontend_test_signed_secret').update(canonical).digest('hex');

@@ -171,12 +171,13 @@ describe('security middleware on versioned API paths', () => {
     timestamp?: string;
   }): Record<string, string> {
     const timestamp = input.timestamp ?? String(Math.floor(Date.now() / 1000));
+    const userId = input.userId ?? 'member-1';
     const canonical = [
       input.method.toUpperCase(),
       input.path,
       timestamp,
       input.nonce,
-      input.userId ?? '',
+      userId,
       bodyHash(input.payload)
     ].join('\n');
 
@@ -236,7 +237,8 @@ describe('security middleware on versioned API paths', () => {
           path,
           payload,
           nonce: 'nonce-a',
-          idempotencyKey: 'idem-a'
+          idempotencyKey: 'idem-a',
+          userId: 'member-1'
         })
       },
       payload
@@ -267,7 +269,8 @@ describe('security middleware on versioned API paths', () => {
           path,
           payload,
           nonce: 'nonce-replay',
-          idempotencyKey: 'idem-1'
+          idempotencyKey: 'idem-1',
+          userId: 'member-1'
         })
       },
       payload
@@ -285,7 +288,8 @@ describe('security middleware on versioned API paths', () => {
           path,
           payload,
           nonce: 'nonce-replay',
-          idempotencyKey: 'idem-2'
+          idempotencyKey: 'idem-2',
+          userId: 'member-1'
         })
       },
       payload
@@ -311,22 +315,24 @@ describe('security middleware on versioned API paths', () => {
       ...signedHeaders({
         method: 'POST',
         path,
-        payload,
-        nonce: 'nonce-idem-a-1',
-        idempotencyKey: 'idem-dedup-1'
-      })
-    };
+          payload,
+          nonce: 'nonce-idem-a-1',
+          idempotencyKey: 'idem-dedup-1',
+          userId: 'member-1'
+        })
+      };
 
     const secondHeaders = {
       cookie: authCookie(['MEMBER']),
       ...signedHeaders({
         method: 'POST',
         path,
-        payload,
-        nonce: 'nonce-idem-a-2',
-        idempotencyKey: 'idem-dedup-1'
-      })
-    };
+          payload,
+          nonce: 'nonce-idem-a-2',
+          idempotencyKey: 'idem-dedup-1',
+          userId: 'member-1'
+        })
+      };
 
     const first = await app.inject({
       method: 'POST',
@@ -346,5 +352,36 @@ describe('security middleware on versioned API paths', () => {
     expect(second.statusCode).toBe(201);
     expect(second.json()).toEqual(first.json());
     expect(joinWaitlist).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects signed request when canonical user does not match authenticated sub', async () => {
+    const path = '/api/v1/bookings/waitlist';
+    const payload = {
+      sessionKey: 'group.class.demo',
+      startAt: '2026-03-01T00:00:00.000Z',
+      endAt: '2026-03-01T01:00:00.000Z',
+      capacity: 10,
+      contact: 'member-1@example.com'
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: path,
+      headers: {
+        cookie: authCookie(['MEMBER'], 'member-1'),
+        ...signedHeaders({
+          method: 'POST',
+          path,
+          payload,
+          nonce: 'nonce-user-mismatch',
+          idempotencyKey: 'idem-user-mismatch',
+          userId: 'member-2'
+        })
+      },
+      payload
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(joinWaitlist).not.toHaveBeenCalled();
   });
 });

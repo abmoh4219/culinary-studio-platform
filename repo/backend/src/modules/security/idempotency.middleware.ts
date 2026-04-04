@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest, onSendHookHandler, preHandlerHookHandler } from 'fastify';
 import { IdempotencyStatus, Prisma } from '../../../prisma/generated';
+import { getConfig } from '../../lib/config';
 import { prisma } from '../../lib/prisma';
 
 import { bodyHash, getRequestPath, isProtectedBusinessAction, stableJsonStringify } from './security.utils';
@@ -14,19 +15,6 @@ type RequestWithIdempotency = FastifyRequest & {
   idempotencyContext?: IdempotencyContext;
 };
 
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-
-  return Math.floor(parsed);
-}
-
 function headerValue(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) {
     return value.length > 0 ? value[0] : null;
@@ -36,24 +24,17 @@ function headerValue(value: string | string[] | undefined): string | null {
 }
 
 function keyTtlHours(): number {
-  return parsePositiveInt(process.env.IDEMPOTENCY_KEY_TTL_HOURS, 24);
+  return getConfig().IDEMPOTENCY_KEY_TTL_HOURS;
 }
 
 function inProgressTimeoutSeconds(): number {
-  return parsePositiveInt(process.env.IDEMPOTENCY_IN_PROGRESS_TIMEOUT_SECONDS, 30);
+  return getConfig().IDEMPOTENCY_IN_PROGRESS_TIMEOUT_SECONDS;
 }
 
 function requestScope(request: FastifyRequest): { scopeKey: string; userId: string | null } {
-  if (request.user?.sub) {
-    return {
-      scopeKey: `user:${request.user.sub}`,
-      userId: request.user.sub
-    };
-  }
-
   return {
-    scopeKey: `ip:${request.ip}`,
-    userId: null
+    scopeKey: request.user?.sub ? `user:${request.user.sub}` : 'anonymous',
+    userId: request.user?.sub ?? null
   };
 }
 

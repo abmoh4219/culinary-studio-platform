@@ -1,7 +1,7 @@
-import { env } from '$env/dynamic/public';
 import type { RequestEvent } from '@sveltejs/kit';
 
 import { fetchApiJson } from '$lib/server/api';
+import { getFrontendConfig } from '$lib/server/config';
 
 export const load = async (event: RequestEvent) => {
   const from = event.url.searchParams.get('from')?.trim() || '';
@@ -33,7 +33,7 @@ export const load = async (event: RequestEvent) => {
     fetchApiJson(event, `/analytics/workflows/completion-accuracy?${workflowQuery}`).catch(() => null)
   ]);
 
-  const apiBaseUrl = env.PUBLIC_API_BASE_URL || 'http://localhost:4000/api/v1';
+  const apiBaseUrl = getFrontendConfig().publicApiBaseUrl;
 
   const exportQuery = [
     from ? `from=${encodeURIComponent(from)}` : '',

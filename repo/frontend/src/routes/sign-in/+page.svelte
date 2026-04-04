@@ -1,6 +1,5 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { env } from '$env/dynamic/public';
   import { toast } from 'svelte-sonner';
 
   import { Button } from '$lib/components/ui/button';
@@ -17,7 +16,7 @@
   let fieldErrors: { username?: string; password?: string } = {};
 
   function resolveBrowserApiBaseUrl(): string {
-    const configured = env.PUBLIC_API_BASE_URL || 'http://localhost:4000/api/v1';
+    const configured = 'https://localhost:4000/api/v1';
 
     if (typeof window === 'undefined') {
       return configured;
@@ -97,7 +96,7 @@
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       formError = message.includes('Failed to fetch')
-        ? `Cannot reach ${apiBaseUrl}. Check Docker, CORS, and PUBLIC_API_BASE_URL.`
+        ? `Cannot reach ${apiBaseUrl}. Check Docker and runtime environment variable injection.`
         : 'Network error while attempting sign-in.';
       state = 'error';
       toast.error('Sign in failed', { description: formError });

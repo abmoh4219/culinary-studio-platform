@@ -2,11 +2,12 @@ import type { FastifyPluginAsync } from 'fastify';
 import { createHash } from 'node:crypto';
 
 import { AuditAction } from '../../../prisma/generated';
+import { getConfig } from '../../lib/config';
 import { writeAuditLog } from '../audit/audit.service';
 
 import { AUTH_COOKIE_NAME, getAuthCookieOptions } from './auth.constants';
 import { requireAuth, requireRoles } from './auth.middleware';
-import { AuthError, loginUser, registerUser } from './auth.service';
+import { AuthError, getUserConsentRecord, loginUser, registerUser, updateUserConsentRecord } from './auth.service';
 
 type RegisterBody = {
   username: string;
@@ -19,6 +20,10 @@ type RegisterBody = {
 type LoginBody = {
   username: string;
   password: string;
+};
+
+type ConsentUpdateBody = {
+  consentGranted: boolean;
 };
 
 const registerBodySchema = {
@@ -45,6 +50,8 @@ const loginBodySchema = {
 } as const;
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
+  const config = getConfig();
+
   app.post<{ Body: RegisterBody }>('/register', {
     schema: {
       body: registerBodySchema
@@ -59,7 +66,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           roles: user.roles
         },
         {
-          expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m'
+          expiresIn: config.JWT_ACCESS_EXPIRES_IN
         }
       );
 
@@ -90,7 +97,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           roles: user.roles
         },
         {
-          expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m'
+          expiresIn: config.JWT_ACCESS_EXPIRES_IN
         }
       );
 
@@ -162,6 +169,51 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     },
     async (_request, reply) => {
       return reply.send({ status: 'ok' });
+    }
+  );
+
+  app.get<{ Params: { userId: string } }>(
+    '/admin/users/:userId/consent',
+    {
+      preHandler: requireRoles(['ADMIN'])
+    },
+    async (request, reply) => {
+      try {
+        const result = await getUserConsentRecord(request.user.roles ?? [], request.params.userId);
+        return reply.send(result);
+      } catch (error) {
+        if (error instanceof AuthError) {
+          return reply.code(error.statusCode).send({ message: error.message });
+        }
+
+        request.log.error(error);
+        return reply.code(500).send({ message: 'Internal server error' });
+      }
+    }
+  );
+
+  app.put<{ Params: { userId: string }; Body: ConsentUpdateBody }>(
+    '/admin/users/:userId/consent',
+    {
+      preHandler: requireRoles(['ADMIN'])
+    },
+    async (request, reply) => {
+      try {
+        const result = await updateUserConsentRecord({
+          actorRoles: request.user.roles ?? [],
+          userId: request.params.userId,
+          consentGranted: request.body.consentGranted
+        });
+
+        return reply.send(result);
+      } catch (error) {
+        if (error instanceof AuthError) {
+          return reply.code(error.statusCode).send({ message: error.message });
+        }
+
+        request.log.error(error);
+        return reply.code(500).send({ message: 'Internal server error' });
+      }
     }
   );
 };

@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { getConfig } from './config';
 
 type LoggerOptions = {
   level: string;
@@ -41,7 +42,7 @@ function redactHeaders(headers: Record<string, unknown> | undefined): Record<str
 
 export function buildLoggerOptions(): LoggerOptions {
   return {
-    level: process.env.LOG_LEVEL || 'info',
+    level: getConfig().LOG_LEVEL,
     redact: {
       paths: REDACT_PATHS,
       censor: '[REDACTED]'

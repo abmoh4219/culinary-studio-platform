@@ -2,12 +2,12 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    env_file:
-      - ./.env.qa
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-culinary_studio}
+      POSTGRES_USER: ${POSTGRES_USER:-culinary_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-culinary_password}
     volumes:
       - pg_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
@@ -19,8 +19,6 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    env_file:
-      - ./.env.qa
     volumes:
       - redis_data:/data
     healthcheck:
@@ -37,12 +35,18 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
-    env_file:
-      - ./.env.qa
     environment:
-      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
-      TRUST_PROXY: ${TRUST_PROXY:-false}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://culinary_user:culinary_password@postgres:5432/culinary_studio?schema=public}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-docker_access_secret_please_override}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-docker_refresh_secret_please_override}
+      SIGNED_REQUEST_SECRET: ${SIGNED_REQUEST_SECRET:-docker_signed_request_secret_please_override}
+      SIGNED_REQUEST_KEY_ID: ${SIGNED_REQUEST_KEY_ID:-default}
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://localhost:5173}
     ports:
       - "4000:4000"
     depends_on:
@@ -56,7 +60,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:4000/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+            "fetch('http://127.0.0.1:4000/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
         ]
       interval: 10s
       timeout: 5s
@@ -70,11 +74,12 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     restart: unless-stopped
-    env_file:
-      - ./.env.qa
     environment:
-      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:4000/api/v1}
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-https://localhost:4000/api/v1}
       API_INTERNAL_BASE_URL: ${API_INTERNAL_BASE_URL:-http://backend:4000/api/v1}
+      SIGNED_REQUEST_SECRET: ${SIGNED_REQUEST_SECRET:-docker_signed_request_secret_please_override}
+      SIGNED_REQUEST_KEY_ID: ${SIGNED_REQUEST_KEY_ID:-default}
+      SECURITY_ACTION_PATH_PREFIXES: ${SECURITY_ACTION_PATH_PREFIXES:-/bookings,/billing,/invoices,/payments}
     ports:
       - "5173:5173"
     depends_on:
@@ -99,13 +104,16 @@ services:
     image: node:20-alpine
     restart: "no"
     working_dir: /workspace
-    env_file:
-      - ./.env.qa
     environment:
       REAL_INTEGRATION_BASE_URL: http://backend:4000
       REAL_INTEGRATION_DATABASE_URL: postgresql://culinary_user:culinary_password@postgres:5432/culinary_studio?schema=public
       DATABASE_URL: postgresql://culinary_user:culinary_password@postgres:5432/culinary_studio?schema=public
       REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: docker_access_secret_please_override
+      JWT_REFRESH_SECRET: docker_refresh_secret_please_override
+      SIGNED_REQUEST_SECRET: docker_signed_request_secret_please_override
+      SIGNED_REQUEST_KEY_ID: default
+      FIELD_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
     volumes:
       - .:/workspace
     depends_on:

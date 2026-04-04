@@ -1,7 +1,7 @@
-import { env as privateEnv } from '$env/dynamic/private';
-import { env as publicEnv } from '$env/dynamic/public';
 import type { RequestEvent } from '@sveltejs/kit';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
+
+import { getFrontendConfig } from './config';
 
 type ApiEvent = Pick<RequestEvent, 'fetch' | 'request'>;
 
@@ -10,12 +10,8 @@ const PROTECTED_PREFIX_FALLBACK = '/bookings,/billing,/invoices,/payments';
 type MutationMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 function apiBaseUrl(): string {
-  return (
-    privateEnv.API_INTERNAL_BASE_URL ||
-    privateEnv.PUBLIC_API_BASE_URL ||
-    publicEnv.PUBLIC_API_BASE_URL ||
-    'http://localhost:4000/api/v1'
-  );
+  const config = getFrontendConfig();
+  return config.apiInternalBaseUrl || config.publicApiBaseUrl;
 }
 
 export async function fetchApiJson<T>(event: ApiEvent, path: string): Promise<T> {
@@ -102,7 +98,7 @@ function normalizePath(rawPath: string): string {
 }
 
 function parseProtectedPrefixes(): string[] {
-  const raw = privateEnv.SECURITY_ACTION_PATH_PREFIXES || PROTECTED_PREFIX_FALLBACK;
+  const raw = getFrontendConfig().securityActionPathPrefixes || PROTECTED_PREFIX_FALLBACK;
   return raw
     .split(',')
     .map((segment) => normalizePath(segment.trim()))
@@ -153,8 +149,34 @@ function bodyHash(body: unknown): string {
   return createHash('sha256').update(stableJson(body ?? {})).digest('hex');
 }
 
+function decodeJwtSubFromCookie(cookieHeader: string): string {
+  const tokenCookie = cookieHeader
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('access_token='));
+
+  if (!tokenCookie) {
+    return '';
+  }
+
+  const token = tokenCookie.slice('access_token='.length);
+  const segments = token.split('.');
+  if (segments.length < 2) {
+    return '';
+  }
+
+  try {
+    const payloadBase64 = segments[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = payloadBase64.length % 4 === 0 ? '' : '='.repeat(4 - (payloadBase64.length % 4));
+    const decoded = JSON.parse(Buffer.from(`${payloadBase64}${pad}`, 'base64').toString('utf8')) as { sub?: string };
+    return decoded.sub || '';
+  } catch {
+    return '';
+  }
+}
+
 function mutationHeaders(
-  _event: ApiEvent,
+  event: ApiEvent,
   method: MutationMethod,
   fullUrl: string,
   body: unknown
@@ -166,19 +188,20 @@ function mutationHeaders(
     return {};
   }
 
-  const secret = privateEnv.SIGNED_REQUEST_SECRET || '';
+  const config = getFrontendConfig();
+  const secret = config.signedRequestSecret;
   if (!secret) {
     throw new Error('SIGNED_REQUEST_SECRET is required for protected business mutations');
   }
 
   const timestamp = String(Math.floor(Date.now() / 1000));
   const nonce = randomUUID();
-  const userId = '';
+  const userId = decodeJwtSubFromCookie(event.request.headers.get('cookie') ?? '');
   const canonical = [method, path, timestamp, nonce, userId, bodyHash(body)].join('\n');
   const signature = createHmac('sha256', secret).update(canonical).digest('hex');
 
   return {
-    'x-key-id': privateEnv.SIGNED_REQUEST_KEY_ID || 'default',
+    'x-key-id': config.signedRequestKeyId,
     'x-timestamp': timestamp,
     'x-nonce': nonce,
     'x-signature': signature,

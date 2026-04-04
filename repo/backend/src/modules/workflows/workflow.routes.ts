@@ -13,7 +13,8 @@ import {
   rollbackWorkflowStep,
   completeWorkflowStep,
   skipWorkflowStep,
-  tickWorkflowRun
+  tickWorkflowRun,
+  listWorkflowRecipes
 } from './workflow-run.service';
 import { Prisma, WorkflowRunEventType } from '../../../prisma/generated';
 import { materializeWorkflowFromRecipe, parseWorkflowVersionParam } from './workflow-timeline.service';
@@ -85,6 +86,26 @@ function parseLimit(raw: string | undefined): number | undefined {
 }
 
 export const workflowRoutes: FastifyPluginAsync = async (app) => {
+  app.get(
+    '/recipes',
+    {
+      preHandler: requireAuth
+    },
+    async (request, reply) => {
+      try {
+        const recipes = await listWorkflowRecipes(request.user.roles ?? []);
+        return reply.send({ recipes });
+      } catch (error) {
+        if (error instanceof AuthError) {
+          return reply.code(error.statusCode).send({ message: error.message });
+        }
+
+        request.log.error(error);
+        return reply.code(500).send({ message: 'Internal server error' });
+      }
+    }
+  );
+
   app.get<{ Params: { recipeId: string }; Querystring: TimelineQuery }>(
     '/recipes/:recipeId/timeline',
     {
