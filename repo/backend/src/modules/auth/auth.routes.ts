@@ -72,7 +72,8 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         {
           sub: user.id,
           username: user.username,
-          roles: user.roles
+          roles: user.roles,
+          tenantId: user.tenantId
         },
         {
           expiresIn: config.JWT_ACCESS_EXPIRES_IN
@@ -103,7 +104,8 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         {
           sub: user.id,
           username: user.username,
-          roles: user.roles
+          roles: user.roles,
+          tenantId: user.tenantId
         },
         {
           expiresIn: config.JWT_ACCESS_EXPIRES_IN

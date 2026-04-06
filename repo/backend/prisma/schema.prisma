@@ -220,8 +220,27 @@ enum MembershipEnrollmentStatus {
   EXPIRED
 }
 
+model Tenant {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique @db.VarChar(60)
+  name        String   @db.VarChar(120)
+  status      String   @default("ACTIVE") @db.VarChar(20)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users             User[]
+  bookings          Booking[]
+  invoices          Invoice[]
+  workflowRuns      WorkflowRun[]
+  webhookConfigs    WebhookConfig[]
+  notifications     Notification[]
+
+  @@index([slug])
+}
+
 model User {
   id              String      @id @default(uuid()) @db.Uuid
+  tenantId        String?     @db.Uuid
   username        String      @unique @db.VarChar(50)
   displayName     String      @db.VarChar(120)
   emailHash       String?     @unique @db.VarChar(128)
@@ -239,6 +258,7 @@ model User {
   lastLoginAt     DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
+  tenant          Tenant?     @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   roles           UserRole[]
   wallets         Wallet[]
   invoices        Invoice[]   @relation("InvoiceCustomer")
@@ -262,7 +282,7 @@ model User {
   acknowledgedWebhookAlerts WebhookFailureAlert[] @relation("WebhookAlertAcknowledger")
   recipeViewEvents RecipeViewEvent[]
 
-  @@index([status])
+  @@index([tenantId, status])
   @@index([createdAt])
   @@index([lockedUntil])
 }
@@ -409,6 +429,7 @@ model PriceBookItem {
 
 model Invoice {
   id                        String          @id @default(uuid()) @db.Uuid
+  tenantId                  String?         @db.Uuid
   invoiceNumber             String          @unique @db.VarChar(40)
   userId                    String?         @db.Uuid
   status                    InvoiceStatus   @default(DRAFT)
@@ -433,6 +454,7 @@ model Invoice {
   notesIv                   String?         @db.VarChar(64)
   createdAt                 DateTime        @default(now())
   updatedAt                 DateTime        @updatedAt
+  tenant                    Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   customer                  User?           @relation("InvoiceCustomer", fields: [userId], references: [id], onDelete: SetNull)
   priceBook                 PriceBook?      @relation(fields: [priceBookId], references: [id], onDelete: SetNull)
   lineItems                 InvoiceLineItem[]
@@ -440,7 +462,7 @@ model Invoice {
   discountOverrides         DiscountOverride[]
   bookings                  Booking[]
 
-  @@index([userId, status, issuedAt])
+  @@index([tenantId, userId, status, issuedAt])
   @@index([priceBookId])
 }
 
@@ -528,6 +550,7 @@ model DiscountOverride {
 
 model Booking {
   id                String         @id @default(uuid()) @db.Uuid
+  tenantId          String?        @db.Uuid
   userId            String         @db.Uuid
   createdByUserId   String?        @db.Uuid
   invoiceId         String?        @db.Uuid
@@ -543,6 +566,7 @@ model Booking {
   notesIv           String?        @db.VarChar(64)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
+  tenant            Tenant?        @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   customer          User           @relation("BookingCustomer", fields: [userId], references: [id], onDelete: Restrict)
   createdBy         User?          @relation("BookingCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   invoice           Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
@@ -551,7 +575,7 @@ model Booking {
   waitlistEntries   Waitlist[]
   workflowRuns      WorkflowRun[]
 
-  @@index([userId, startAt])
+  @@index([tenantId, userId, startAt])
   @@index([resourceKey, startAt, endAt])
   @@index([status, startAt])
   @@index([invoiceId])
@@ -651,6 +675,7 @@ model RecipeStep {
 
 model WorkflowRun {
   id                    String              @id @default(uuid()) @db.Uuid
+  tenantId              String?             @db.Uuid
   recipeId              String              @db.Uuid
   bookingId             String?             @db.Uuid
   operatorUserId        String?             @db.Uuid
@@ -663,13 +688,14 @@ model WorkflowRun {
   contextJson           Json?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
+  tenant                Tenant?             @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   recipe                Recipe              @relation(fields: [recipeId], references: [id], onDelete: Restrict)
   booking               Booking?            @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   operator              User?               @relation("WorkflowOperator", fields: [operatorUserId], references: [id], onDelete: SetNull)
   steps                 WorkflowRunStep[]
   events                WorkflowRunEvent[]
 
-  @@index([recipeId, status])
+  @@index([tenantId, recipeId, status])
   @@index([bookingId])
   @@index([status, scheduledStartAt])
 }
@@ -719,6 +745,7 @@ model WorkflowRunEvent {
 
 model Notification {
   id                    String             @id @default(uuid()) @db.Uuid
+  tenantId              String?            @db.Uuid
   userId                String?            @db.Uuid
   scenario              NotificationScenario
   channel               NotificationChannel
@@ -737,9 +764,10 @@ model Notification {
   failureReason         String?            @db.VarChar(255)
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
+  tenant                Tenant?            @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   user                  User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  @@index([userId, createdAt])
+  @@index([tenantId, userId, createdAt])
   @@index([status, scheduledFor])
   @@index([channel, status, createdAt])
   @@index([scenario, createdAt])
@@ -780,6 +808,7 @@ model AuditLog {
 
 model WebhookConfig {
   id                      String        @id @default(uuid()) @db.Uuid
+  tenantId                String?       @db.Uuid
   createdByUserId         String?       @db.Uuid
   name                    String        @db.VarChar(120)
   eventKey                String        @db.VarChar(80)
@@ -794,11 +823,12 @@ model WebhookConfig {
   headersJson             Json?
   createdAt               DateTime      @default(now())
   updatedAt               DateTime      @updatedAt
+  tenant                  Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   createdBy               User?         @relation("WebhookCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   logs                    WebhookLog[]
   failureAlerts           WebhookFailureAlert[]
 
-  @@index([eventKey, status])
+  @@index([tenantId, eventKey, status])
   @@index([endpointHash])
 }
 

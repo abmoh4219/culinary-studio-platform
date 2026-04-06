@@ -28,6 +28,7 @@ type SafeUser = {
   consentGrantedAt: Date | null;
   createdAt: Date;
   roles: string[];
+  tenantId?: string | null;
 };
 
 export class AuthError extends Error {
@@ -73,7 +74,8 @@ function sanitizeUser(user: SafeUser) {
     consentGranted: user.consentGranted,
     consentGrantedAt: user.consentGrantedAt,
     createdAt: user.createdAt,
-    roles: user.roles
+    roles: user.roles,
+    tenantId: user.tenantId ?? undefined
   };
 }
 
@@ -177,7 +179,8 @@ export async function registerUser(input: RegisterInput) {
       status: true,
       consentGranted: true,
       consentGrantedAt: true,
-      createdAt: true
+      createdAt: true,
+      tenantId: true
     }
   });
 
@@ -223,7 +226,8 @@ export async function loginUser(input: LoginInput) {
       lockedUntil: true,
       consentGranted: true,
       consentGrantedAt: true,
-      createdAt: true
+      createdAt: true,
+      tenantId: true
     }
   });
 

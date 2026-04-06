@@ -463,6 +463,8 @@ describe('API tests', () => {
   });
 
   it('authorization negative: admin-only billing wallet top-up rejects non-admin', async () => {
+    // The signed request middleware runs before the role guard on protected billing
+    // paths, so unsigned requests receive 401 (missing signature) rather than 403.
     const response = await app.inject({
       method: 'POST',
       url: '/api/v1/billing/wallet/top-up',

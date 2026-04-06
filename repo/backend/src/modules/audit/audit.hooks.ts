@@ -18,8 +18,29 @@ function auditActionForMethod(method: string): AuditAction {
   return AuditAction.UPDATE;
 }
 
+const AUDITED_PATH_PREFIXES = [
+  '/api/v1/bookings',
+  '/api/v1/billing',
+  '/api/v1/auth/admin',
+  '/api/v1/auth/register',
+  '/api/v1/workflows',
+  '/api/v1/webhooks',
+  '/api/v1/analytics',
+  '/api/v1/notifications'
+];
+
 function isHighRiskPath(path: string): boolean {
-  return path.startsWith('/api/v1/bookings') || path.startsWith('/api/v1/billing');
+  return AUDITED_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+function resolveEntityType(path: string): string {
+  for (const prefix of AUDITED_PATH_PREFIXES) {
+    if (path.startsWith(prefix)) {
+      const segment = prefix.split('/').pop() ?? 'unknown';
+      return `${segment}_mutation`;
+    }
+  }
+  return 'unknown_mutation';
 }
 
 export function createAuditOnResponseHook(): onResponseHookHandler {
@@ -40,7 +61,7 @@ export function createAuditOnResponseHook(): onResponseHookHandler {
     await writeAuditLog({
       actorUserId: request.user?.sub ?? null,
       action: auditActionForMethod(request.method),
-      entityType: path.startsWith('/api/v1/bookings') ? 'booking_mutation' : 'billing_mutation',
+      entityType: resolveEntityType(path),
       entityLabel: path,
       requestId: request.id,
       ip: request.ip,

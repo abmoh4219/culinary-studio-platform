@@ -211,7 +211,8 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           ...request.body,
           actorUserId: request.user.sub,
           actorRoles: request.user.roles ?? [],
-          userRoles: request.user.roles ?? []
+          userRoles: request.user.roles ?? [],
+          tenantId: request.user.tenantId
         });
 
         void createNotification({

@@ -6,12 +6,14 @@
   import '../app.css';
 
   import { initializeMotionPreferences, prefersReducedMotion } from '$lib/motion';
+  import { registerServiceWorker } from '$lib/offline';
   import { initializeTheme, resolvedTheme, syncSystemTheme } from '$lib/theme';
   import { Toaster } from 'svelte-sonner';
 
   onMount(() => {
     initializeTheme();
     initializeMotionPreferences();
+    registerServiceWorker();
 
     const cleanupTheme = syncSystemTheme();
     return () => {

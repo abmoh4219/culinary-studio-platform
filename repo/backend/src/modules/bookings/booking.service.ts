@@ -23,6 +23,7 @@ type CreateBookingInput = {
   priceBookItemId?: string;
   notes?: string;
   source?: BookingSource;
+  tenantId?: string;
 };
 
 type AvailabilityInput = {
@@ -471,12 +472,14 @@ async function createBookingInTx(
     priceBookId?: string;
     priceBookItemId?: string;
     notes?: string;
+    tenantId?: string;
   }
 ) {
   const notes = encryptOptionalField(input.notes);
 
   return tx.booking.create({
     data: {
+      tenantId: input.tenantId,
       userId: input.userId,
       createdByUserId: input.createdByUserId,
       invoiceId: input.invoiceId,
@@ -700,6 +703,7 @@ export async function createBooking(input: CreateBookingInput) {
 
     try {
       const booking = await createBookingInTx(tx, {
+        tenantId: input.tenantId,
         userId: assuredTargetUserId,
         createdByUserId: assuredActorUserId,
         sessionKey,
