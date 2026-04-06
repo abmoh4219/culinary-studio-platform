@@ -1545,9 +1545,9 @@ export async function recordManualPayment(input: ManualPaymentInput) {
   });
 }
 
-export async function getInvoiceOutstanding(invoiceId: string, actorUserId: string, actorRoles: string[]) {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id: invoiceId },
+export async function getInvoiceOutstanding(invoiceId: string, actorUserId: string, actorRoles: string[], tenantId?: string) {
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, ...(tenantId ? { tenantId } : {}) },
     select: {
       id: true,
       userId: true,
@@ -1580,6 +1580,7 @@ export async function getAccountReceivables(input: {
   actorUserId: string;
   actorRoles: string[];
   userId?: string;
+  tenantId?: string;
 }) {
   const targetUserId = input.userId ?? input.actorUserId;
   if (targetUserId !== input.actorUserId && !isAdmin(input.actorRoles)) {
@@ -1589,6 +1590,7 @@ export async function getAccountReceivables(input: {
   const invoices = await prisma.invoice.findMany({
     where: {
       userId: targetUserId,
+      ...(input.tenantId ? { tenantId: input.tenantId } : {}),
       status: {
         in: [InvoiceStatus.ISSUED, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.PAID]
       }
@@ -1642,9 +1644,9 @@ export async function getAccountReceivables(input: {
   };
 }
 
-export async function getInvoice(invoiceId: string, actorUserId: string, actorRoles: string[]) {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id: invoiceId },
+export async function getInvoice(invoiceId: string, actorUserId: string, actorRoles: string[], tenantId?: string) {
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, ...(tenantId ? { tenantId } : {}) },
     select: {
       id: true,
       invoiceNumber: true,

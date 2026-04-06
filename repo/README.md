@@ -82,19 +82,24 @@ docker compose build --no-cache
 docker compose up -d
 ```
 
-TLS is enabled by default via Caddy reverse proxy. All traffic on ports 80/443 is TLS-terminated.
-Backend and frontend ports are not exposed to the host; traffic routes through Caddy only.
+TLS is enabled by default via Caddy reverse proxy (ports 8080/8443).
+Backend and frontend are also directly accessible for development/QA.
 
-For development without TLS (not recommended for production):
+After `docker compose up -d`, the following URLs are available:
 
-```bash
-docker compose --profile dev up -d
-```
+| Service | URL | Description |
+|---------|-----|-------------|
+| Frontend | http://localhost:5173 | Main application UI |
+| Backend API | http://localhost:4000/api/v1 | REST API base |
+| Backend Health | http://localhost:4000/health/ready | Readiness check |
+| Caddy (TLS) | https://localhost:8443 | TLS-terminated proxy (both frontend and API) |
+
+Ports are configurable via environment variables: `BACKEND_PORT`, `FRONTEND_PORT`, `CADDY_HTTP_PORT`, `CADDY_HTTPS_PORT`.
 
 TLS notes:
 
-- TLS is enforced by default on all LAN deployments.
-- Public/browser URLs should use HTTPS origins only.
+- TLS is enforced by default on all LAN deployments via Caddy.
+- Public/browser URLs should use HTTPS origins only in production.
 - Auth cookies are secure + httpOnly + sameSite=strict by default.
 - Signed/idempotent protected mutations are user-scoped and validated after JWT auth.
 
@@ -103,7 +108,7 @@ TLS notes:
 Login:
 
 ```bash
-curl -k -X POST https://localhost:4000/api/v1/auth/login \
+curl -X POST http://localhost:4000/api/v1/auth/login \
   -H 'content-type: application/json' \
   -d '{"username":"qa.admin@culinary.local","password":"QaAdminPass123!"}'
 ```

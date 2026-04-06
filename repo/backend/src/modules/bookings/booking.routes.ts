@@ -351,7 +351,8 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           bookingId: request.params.bookingId,
           actorUserId: request.user.sub,
           actorRoles: request.user.roles ?? [],
-          baseAmount: request.body.baseAmount
+          baseAmount: request.body.baseAmount,
+          tenantId: request.user.tenantId
         });
 
         return reply.send({
@@ -393,7 +394,8 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           bookingId: request.params.bookingId,
           actorUserId: request.user.sub,
           actorRoles: request.user.roles ?? [],
-          baseAmount
+          baseAmount,
+          tenantId: request.user.tenantId
         });
 
         return reply.send(result);
@@ -439,7 +441,8 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           actorUserId: request.user.sub,
           actorRoles: request.user.roles ?? [],
           capacity: request.body.capacity,
-          baseAmount: request.body.baseAmount
+          baseAmount: request.body.baseAmount,
+          tenantId: request.user.tenantId
         });
 
         void createNotification({
@@ -534,6 +537,7 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           bookingId: request.params.bookingId,
           actorUserId: request.user.sub,
           actorRoles: request.user.roles ?? [],
+          tenantId: request.user.tenantId,
           ...request.body
         });
 
@@ -664,7 +668,8 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           bookingId: request.params.bookingId,
           actorUserId: request.user.sub,
           actorRoles: request.user.roles ?? [],
-          remindAt: request.body.remindAt
+          remindAt: request.body.remindAt,
+          tenantId: request.user.tenantId
         });
 
         return reply.code(201).send(result);

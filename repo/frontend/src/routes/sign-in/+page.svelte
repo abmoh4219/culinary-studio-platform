@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
+  import { enhance } from '$app/forms';
   import { toast } from 'svelte-sonner';
 
   import { Button } from '$lib/components/ui/button';
@@ -7,105 +7,15 @@
   import { Input } from '$lib/components/ui/input';
   import { Label } from '$lib/components/ui/label';
 
-  import type { PageData } from './$types';
+  import type { ActionData } from './$types';
 
-  export let data: PageData;
+  export let form: ActionData;
 
-  type FormState = 'idle' | 'loading' | 'success' | 'error';
-
-  let username = '';
-  let password = '';
-  let state: FormState = 'idle';
-  let formError = '';
+  let state: 'idle' | 'loading' = 'idle';
   let fieldErrors: { username?: string; password?: string } = {};
 
-  function resolveBrowserApiBaseUrl(): string {
-    const configured = data.publicApiBaseUrl;
-
-    if (typeof window === 'undefined') {
-      return configured;
-    }
-
-    try {
-      const url = new URL(configured);
-      if (url.hostname === 'backend' || url.hostname === 'localhost') {
-        url.hostname = window.location.hostname;
-        url.port = window.location.port || url.port;
-      }
-      return url.toString().replace(/\/$/, '');
-    } catch {
-      return `${window.location.origin}/api/v1`;
-    }
-  }
-
-  const apiBaseUrl = resolveBrowserApiBaseUrl();
-
-  function validate(): boolean {
-    const nextErrors: { username?: string; password?: string } = {};
-
-    if (!username.trim()) {
-      nextErrors.username = 'Enter your email.';
-    }
-
-    if (!password) {
-      nextErrors.password = 'Enter your password.';
-    }
-
-    fieldErrors = nextErrors;
-    return Object.keys(nextErrors).length === 0;
-  }
-
-  async function submit(event: SubmitEvent): Promise<void> {
-    event.preventDefault();
-    formError = '';
-
-    const form = event.currentTarget as HTMLFormElement | null;
-    const formData = form ? new FormData(form) : null;
-    const usernameValue = (formData?.get('username')?.toString() ?? username).trim();
-    const passwordValue = formData?.get('password')?.toString() ?? password;
-
-    username = usernameValue;
-    password = passwordValue;
-
-    if (!validate()) {
-      state = 'error';
-      return;
-    }
-
-    state = 'loading';
-
-    try {
-      const response = await fetch(`${apiBaseUrl}/auth/login`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({
-          username: usernameValue.toLowerCase(),
-          password: passwordValue
-        })
-      });
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { message?: string };
-        formError = payload.message ?? 'We could not sign you in with those credentials.';
-        state = 'error';
-        toast.error('Sign in failed', { description: formError });
-        return;
-      }
-
-      state = 'success';
-      toast.success('Welcome back', { description: 'Signed in successfully.' });
-      await goto('/');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      formError = message.includes('Failed to fetch')
-        ? `Cannot reach ${apiBaseUrl}. Check Docker and runtime environment variable injection.`
-        : 'Network error while attempting sign-in.';
-      state = 'error';
-      toast.error('Sign in failed', { description: formError });
-    }
+  $: if (form?.error) {
+    toast.error('Sign in failed', { description: form.error });
   }
 </script>
 
@@ -138,7 +48,19 @@
           </p>
         </div>
 
-        <form class="mt-s8 space-y-s5" on:submit={submit} novalidate>
+        <form
+          class="mt-s8 space-y-s5"
+          method="POST"
+          use:enhance={() => {
+            state = 'loading';
+            fieldErrors = {};
+            return async ({ update }) => {
+              state = 'idle';
+              await update();
+            };
+          }}
+          novalidate
+        >
           <div class="space-y-s2">
             <Label for="username" className="text-slate-200">Email</Label>
             <Input
@@ -146,7 +68,7 @@
               name="username"
               autocomplete="username"
               placeholder="name@company.local"
-              bind:value={username}
+              value={form?.username ?? ''}
               aria-invalid={fieldErrors.username ? 'true' : 'false'}
               aria-describedby={fieldErrors.username ? 'username-error' : 'username-help'}
               className="h-11 border-white/15 bg-slate-950/60 text-slate-100 placeholder:text-slate-500 focus-visible:ring-cyan-300/60"
@@ -167,7 +89,6 @@
               type="password"
               autocomplete="current-password"
               placeholder="Enter your password"
-              bind:value={password}
               aria-invalid={fieldErrors.password ? 'true' : 'false'}
               aria-describedby={fieldErrors.password ? 'password-error' : undefined}
               className="h-11 border-white/15 bg-slate-950/60 text-slate-100 placeholder:text-slate-500 focus-visible:ring-cyan-300/60"
@@ -177,9 +98,9 @@
             {/if}
           </div>
 
-          {#if formError}
+          {#if form?.error}
             <div class="rounded-md border border-red-300/40 bg-red-500/10 px-s3 py-s2 text-sm text-red-200">
-              {formError}
+              {form.error}
             </div>
           {/if}
 

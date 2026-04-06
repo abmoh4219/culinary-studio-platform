@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { fade, fly } from 'svelte/transition';
-  import { toast } from 'svelte-sonner';
 
   import { Button } from '$lib/components/ui/button';
   import { prefersReducedMotion } from '$lib/motion';
@@ -24,7 +22,6 @@
   ];
 
   let mobileNavOpen = false;
-  let signingOut = false;
 
   $: breadcrumbParts = $page.url.pathname.split('/').filter(Boolean);
 
@@ -39,55 +36,6 @@
     }
 
     return path === href || path.startsWith(`${href}/`);
-  }
-
-  function resolveBrowserApiBaseUrl(): string {
-    const configured = data.publicApiBaseUrl;
-
-    if (typeof window === 'undefined') {
-      return configured;
-    }
-
-    try {
-      const url = new URL(configured);
-      if (url.hostname === 'backend' || url.hostname === 'localhost') {
-        url.hostname = window.location.hostname;
-        url.port = window.location.port || url.port;
-      }
-      return url.toString().replace(/\/$/, '');
-    } catch {
-      return `${window.location.origin}/api/v1`;
-    }
-  }
-
-  async function signOut(): Promise<void> {
-    if (signingOut) {
-      return;
-    }
-
-    signingOut = true;
-    const apiBaseUrl = resolveBrowserApiBaseUrl();
-
-    try {
-      const response = await fetch(`${apiBaseUrl}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(payload.message || 'Unable to sign out.');
-      }
-
-      toast.success('Signed out');
-      await goto('/sign-in');
-    } catch (error) {
-      toast.error('Sign out failed', {
-        description: error instanceof Error ? error.message : 'Unable to sign out right now.'
-      });
-    } finally {
-      signingOut = false;
-    }
   }
 </script>
 
@@ -156,9 +104,11 @@
 
             <div class="flex items-center gap-2 rounded-md border border-border/80 bg-card/80 px-2 py-1">
               <span class="hidden max-w-[10rem] truncate text-xs text-muted-foreground sm:inline">{data.session.user.username}</span>
-              <Button size="sm" variant="secondary" on:click={signOut} disabled={signingOut}>
-                {signingOut ? 'Signing out...' : 'Sign out'}
-              </Button>
+              <form method="POST" action="/sign-out">
+                <Button size="sm" variant="secondary" type="submit">
+                  Sign out
+                </Button>
+              </form>
             </div>
           </div>
         </div>
@@ -211,9 +161,11 @@
 
       <div class="mt-s6 rounded-md border bg-background/70 p-s3">
         <p class="truncate text-xs text-muted-foreground">{data.session.user.username}</p>
-        <Button className="mt-2 w-full" size="sm" variant="secondary" on:click={signOut} disabled={signingOut}>
-          {signingOut ? 'Signing out...' : 'Sign out'}
-        </Button>
+        <form method="POST" action="/sign-out">
+          <Button className="mt-2 w-full" size="sm" variant="secondary" type="submit">
+            Sign out
+          </Button>
+        </form>
       </div>
     </aside>
   {/if}

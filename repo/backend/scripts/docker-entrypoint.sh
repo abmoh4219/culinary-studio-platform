@@ -43,5 +43,8 @@ NODE
 echo "[backend] Applying Prisma migrations"
 npx prisma migrate deploy
 
+echo "[backend] Seeding QA data"
+node prisma/seed.qa.cjs || echo "[backend] QA seed skipped or already applied"
+
 echo "[backend] Starting backend"
 npm run start

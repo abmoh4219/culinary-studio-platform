@@ -51,6 +51,7 @@ type CancelBookingInput = {
   actorRoles: string[];
   capacity: number;
   baseAmount?: number;
+  tenantId?: string;
 };
 
 type CancellationPreviewInput = {
@@ -58,6 +59,7 @@ type CancellationPreviewInput = {
   actorUserId: string;
   actorRoles: string[];
   baseAmount?: number;
+  tenantId?: string;
 };
 
 type RescheduleBookingInput = {
@@ -69,6 +71,7 @@ type RescheduleBookingInput = {
   newStartAt: string;
   newEndAt: string;
   capacity: number;
+  tenantId?: string;
 };
 
 type PromoteNextInput = {
@@ -202,6 +205,7 @@ type BookingManagementInput = {
   actorRoles: string[];
   bookingId: string;
   bookingOwnerUserId: string;
+  tenantId?: string;
 };
 
 export async function canManageBooking(
@@ -254,6 +258,25 @@ async function ensureCanManageBooking(
 
 function isBookingActive(status: BookingStatus): boolean {
   return ACTIVE_BOOKING_STATUSES.includes(status);
+}
+
+async function findBookingWithTenant(
+  client: Prisma.TransactionClient | typeof prisma,
+  bookingId: string,
+  tenantId: string | undefined,
+  select: Record<string, boolean>
+) {
+  const where: Record<string, unknown> = { id: bookingId };
+  if (tenantId) {
+    where.tenantId = tenantId;
+  }
+
+  const booking = await (client as any).booking.findFirst({ where, select });
+  if (!booking) {
+    throw new AuthError('Booking not found', 404);
+  }
+
+  return booking;
 }
 
 type CancellationFeePreview = {
@@ -897,22 +920,15 @@ export async function cancelBooking(input: CancelBookingInput) {
   validateCapacity(input.capacity);
 
   return prisma.$transaction(async (tx) => {
-    const booking = await tx.booking.findUnique({
-      where: { id: input.bookingId },
-      select: {
-        id: true,
-        userId: true,
-        resourceKey: true,
-        startAt: true,
-        endAt: true,
-        status: true,
-        priceBookItemId: true
-      }
+    const booking = await findBookingWithTenant(tx, input.bookingId, input.tenantId, {
+      id: true,
+      userId: true,
+      resourceKey: true,
+      startAt: true,
+      endAt: true,
+      status: true,
+      priceBookItemId: true
     });
-
-    if (!booking) {
-      throw new AuthError('Booking not found', 404);
-    }
 
     await ensureCanManageBooking(tx, input.actorUserId, input.actorRoles, booking.id, booking.userId);
 
@@ -959,20 +975,13 @@ export async function cancelBooking(input: CancelBookingInput) {
 
 export async function previewCancellation(input: CancellationPreviewInput) {
   return prisma.$transaction(async (tx) => {
-    const booking = await tx.booking.findUnique({
-      where: { id: input.bookingId },
-      select: {
-        id: true,
-        userId: true,
-        startAt: true,
-        status: true,
-        priceBookItemId: true
-      }
+    const booking = await findBookingWithTenant(tx, input.bookingId, input.tenantId, {
+      id: true,
+      userId: true,
+      startAt: true,
+      status: true,
+      priceBookItemId: true
     });
-
-    if (!booking) {
-      throw new AuthError('Booking not found', 404);
-    }
 
     await ensureCanManageBooking(tx, input.actorUserId, input.actorRoles, booking.id, booking.userId);
 
@@ -1004,25 +1013,18 @@ export async function rescheduleBooking(input: RescheduleBookingInput) {
   }
 
   return prisma.$transaction(async (tx) => {
-    const booking = await tx.booking.findUnique({
-      where: { id: input.bookingId },
-      select: {
-        id: true,
-        userId: true,
-        status: true,
-        resourceKey: true,
-        startAt: true,
-        endAt: true,
-        partySize: true,
-        invoiceId: true,
-        priceBookId: true,
-        priceBookItemId: true
-      }
+    const booking = await findBookingWithTenant(tx, input.bookingId, input.tenantId, {
+      id: true,
+      userId: true,
+      status: true,
+      resourceKey: true,
+      startAt: true,
+      endAt: true,
+      partySize: true,
+      invoiceId: true,
+      priceBookId: true,
+      priceBookItemId: true
     });
-
-    if (!booking) {
-      throw new AuthError('Booking not found', 404);
-    }
 
     await ensureCanManageBooking(tx, input.actorUserId, input.actorRoles, booking.id, booking.userId);
 
@@ -1171,23 +1173,17 @@ export async function scheduleBookingReminder(input: {
   actorUserId: string;
   actorRoles: string[];
   remindAt: string;
+  tenantId?: string;
 }) {
   const remindAt = toDateOrThrow(input.remindAt, 'remindAt');
 
-  const booking = await prisma.booking.findUnique({
-    where: { id: input.bookingId },
-    select: {
-      id: true,
-      userId: true,
-      startAt: true,
-      endAt: true,
-      resourceKey: true
-    }
+  const booking = await findBookingWithTenant(prisma, input.bookingId, input.tenantId, {
+    id: true,
+    userId: true,
+    startAt: true,
+    endAt: true,
+    resourceKey: true
   });
-
-  if (!booking) {
-    throw new AuthError('Booking not found', 404);
-  }
 
   await ensureCanManageBooking(prisma, input.actorUserId, input.actorRoles, booking.id, booking.userId);
 

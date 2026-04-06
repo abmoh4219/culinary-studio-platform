@@ -12,11 +12,16 @@ type Bucket = {
 const localBuckets = new Map<string, Bucket>();
 let redisClient: Redis | null = null;
 let redisAvailable = false;
+let fallbackWarned = false;
 
 function getRedisClient(): Redis | null {
   const config = getConfig();
 
   if (!config.REDIS_URL) {
+    if (config.NODE_ENV === 'production' && !fallbackWarned) {
+      fallbackWarned = true;
+      throw new Error('REDIS_URL is required in production for distributed rate limiting');
+    }
     return null;
   }
 
@@ -105,11 +110,14 @@ async function checkRedisRateLimit(
   return { allowed: true, retryAfterSeconds: 0 };
 }
 
+const LOCAL_FALLBACK_PENALTY = 0.5;
+
 function checkLocalRateLimit(
   key: string,
   maxRequests: number,
   windowMs: number
 ): { allowed: boolean; retryAfterSeconds: number } {
+  const effectiveMax = Math.max(1, Math.floor(maxRequests * LOCAL_FALLBACK_PENALTY));
   const now = Date.now();
   const current = localBuckets.get(key);
 
@@ -118,7 +126,7 @@ function checkLocalRateLimit(
     return { allowed: true, retryAfterSeconds: 0 };
   }
 
-  if (current.count >= maxRequests) {
+  if (current.count >= effectiveMax) {
     const retryAfterSeconds = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
     return { allowed: false, retryAfterSeconds };
   }
@@ -137,8 +145,13 @@ function checkLocalRateLimit(
 }
 
 export function createUserRateLimitMiddleware(app: FastifyInstance): preHandlerHookHandler {
-  const maxRequestsPerMinute = getConfig().RATE_LIMIT_MAX_REQUESTS_PER_MINUTE;
+  const config = getConfig();
+  const maxRequestsPerMinute = config.RATE_LIMIT_MAX_REQUESTS_PER_MINUTE;
   const windowMs = 60_000;
+
+  if (config.NODE_ENV === 'production' && !config.REDIS_URL) {
+    throw new Error('REDIS_URL is required in production for distributed rate limiting');
+  }
 
   return async function userRateLimit(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const key = await resolveRateLimitKey(app, request);
@@ -150,9 +163,14 @@ export function createUserRateLimitMiddleware(app: FastifyInstance): preHandlerH
       try {
         result = await checkRedisRateLimit(redis, key, maxRequestsPerMinute, windowMs);
       } catch {
+        request.log.warn('Redis rate limit check failed, falling back to local with stricter limits');
         result = checkLocalRateLimit(key, maxRequestsPerMinute, windowMs);
       }
     } else {
+      if (!fallbackWarned && config.NODE_ENV !== 'test') {
+        fallbackWarned = true;
+        request.log.warn('Rate limiter using local fallback (Redis unavailable). Stricter limits apply.');
+      }
       result = checkLocalRateLimit(key, maxRequestsPerMinute, windowMs);
     }
 

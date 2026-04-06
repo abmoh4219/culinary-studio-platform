@@ -456,7 +456,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       try {
-        const result = await getInvoice(request.params.invoiceId, request.user.sub, request.user.roles ?? []);
+        const result = await getInvoice(request.params.invoiceId, request.user.sub, request.user.roles ?? [], request.user.tenantId);
         return reply.send(result);
       } catch (error) {
         if (error instanceof AuthError) {
@@ -479,7 +479,8 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
         const result = await getInvoiceOutstanding(
           request.params.invoiceId,
           request.user.sub,
-          request.user.roles ?? []
+          request.user.roles ?? [],
+          request.user.tenantId
         );
         return reply.send(result);
       } catch (error) {
@@ -503,7 +504,8 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
         const result = await getAccountReceivables({
           actorUserId: request.user.sub,
           actorRoles: request.user.roles ?? [],
-          userId: request.query.userId
+          userId: request.query.userId,
+          tenantId: request.user.tenantId
         });
 
         return reply.send(result);

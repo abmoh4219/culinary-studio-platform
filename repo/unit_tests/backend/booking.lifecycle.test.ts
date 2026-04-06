@@ -96,15 +96,17 @@ describe('booking lifecycle critical behaviors', () => {
     const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
 
     mocks.executeRaw.mockResolvedValue(undefined);
-    mocks.bookingFindUnique.mockResolvedValue({
-      id: 'booking-1',
-      userId: 'owner-1',
-      resourceKey: 'group.class.demo::station-1',
-      startAt,
-      endAt,
-      status: 'CONFIRMED',
-      priceBookItemId: null
-    });
+    mocks.bookingFindFirst
+      .mockResolvedValueOnce({
+        id: 'booking-1',
+        userId: 'owner-1',
+        resourceKey: 'group.class.demo::station-1',
+        startAt,
+        endAt,
+        status: 'CONFIRMED',
+        priceBookItemId: null
+      })
+      .mockResolvedValue(null);
     mocks.bookingUpdate.mockResolvedValue({ id: 'booking-1' });
     mocks.waitlistFindFirst.mockResolvedValue({
       id: 'wait-1',
@@ -113,7 +115,6 @@ describe('booking lifecycle critical behaviors', () => {
     });
     mocks.userRoleFindMany.mockResolvedValue([{ role: { code: 'MEMBER' } }]);
     mocks.bookingCount.mockResolvedValue(0);
-    mocks.bookingFindFirst.mockResolvedValue(null);
     mocks.bookingCreate.mockResolvedValue({
       id: 'booking-promoted',
       userId: 'member-2',
@@ -150,7 +151,7 @@ describe('booking lifecycle critical behaviors', () => {
     vi.useFakeTimers();
     vi.setSystemTime(baseNow);
 
-    mocks.bookingFindUnique
+    mocks.bookingFindFirst
       .mockResolvedValueOnce({
         id: 'booking-24h',
         userId: 'member-1',
@@ -290,20 +291,21 @@ describe('booking lifecycle critical behaviors', () => {
     const newEnd = new Date(newStart.getTime() + 60 * 60 * 1000);
 
     mocks.executeRaw.mockResolvedValue(undefined);
-    mocks.bookingFindUnique.mockResolvedValue({
-      id: 'booking-1',
-      userId: 'member-1',
-      status: 'CONFIRMED',
-      resourceKey: 'group.class.demo::station-1',
-      startAt: oldStart,
-      endAt: oldEnd,
-      partySize: 1,
-      invoiceId: null,
-      priceBookId: null,
-      priceBookItemId: null
-    });
+    mocks.bookingFindFirst
+      .mockResolvedValueOnce({
+        id: 'booking-1',
+        userId: 'member-1',
+        status: 'CONFIRMED',
+        resourceKey: 'group.class.demo::station-1',
+        startAt: oldStart,
+        endAt: oldEnd,
+        partySize: 1,
+        invoiceId: null,
+        priceBookId: null,
+        priceBookItemId: null
+      })
+      .mockResolvedValue(null);
     mocks.userRoleFindMany.mockResolvedValue([{ role: { code: 'MEMBER' } }]);
-    mocks.bookingFindFirst.mockResolvedValue(null);
     mocks.bookingCount.mockResolvedValue(0);
     mocks.bookingUpdate.mockResolvedValue({
       id: 'booking-1',
